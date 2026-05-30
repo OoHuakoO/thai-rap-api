@@ -1,0 +1,361 @@
+// ──────────────────────────────────────────────────────────────────────────────
+// Prisma Schema — Thai RAP API
+// Provider: PostgreSQL (hosted on Supabase — treated as plain PG)
+// ──────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  ASSESSOR
+  MENTOR
+  ENTREPRENEUR
+  JUDGE
+  ME_TEAM
+}
+
+enum UserStatus {
+  ACTIVE
+  PENDING
+  SUSPENDED
+}
+
+enum StoreStatus {
+  REGISTERED
+  T0_COMPLETED
+  CAMP_COMPLETED
+  T1_COMPLETED
+  PITCHING_COMPLETED
+  SELECTED
+  CONDITIONAL_SELECTED
+  WAITING_LIST
+  NOT_SELECTED
+  FIELD_AUDITED
+  IDP_CREATED
+  COMPLETED
+}
+
+enum Round {
+  T0
+  T1
+  T2
+  T3
+  T4
+}
+
+enum AssessmentStatus {
+  DRAFT
+  IN_PROGRESS
+  SUBMITTED
+  APPROVED
+}
+
+enum ScoreStatus {
+  PENDING
+  SCORED
+  FLAGGED
+}
+
+enum RedFlagType {
+  FOOD_SAFETY
+  FINANCIAL
+  OPERATION
+  MARKET
+  LEGAL
+  OWNER_READINESS
+  EVIDENCE
+  GROWTH
+}
+
+enum Severity {
+  WARNING
+  CRITICAL
+}
+
+enum Phase {
+  D7
+  D30
+  D90
+}
+
+enum PlanStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
+}
+
+enum PortfolioStatus {
+  PENDING
+  COMPLETE
+}
+
+enum ReportStatus {
+  PENDING
+  GENERATING
+  DONE
+  FAILED
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  password     String
+  phone        String?
+  role         Role
+  department   String?
+  status       UserStatus @default(PENDING)
+  avatar       String?
+  lastLogin    DateTime?
+  permissions  String[]   @default([])
+  provinces    String[]   @default([])
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  refreshToken  RefreshToken?
+  assessments   Assessment[]
+  pitchScores   PitchingScore[]
+  idps          IDP[]
+  assignedStores Store[]        @relation("AssignedAssessor")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String    @unique
+  tokenHash String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+
+model Store {
+  id           String      @id @default(cuid())
+  name         String
+  province     String
+  storeType    String
+  ownerName    String
+  phone        String
+  email        String?
+  address      String
+  socialLinks  Json        @default("{}")
+  avgRevenue   Float?
+  mainProblems String?
+  goals        String?
+  photos       String[]    @default([])
+  status       StoreStatus @default(REGISTERED)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  assessments  Assessment[]
+  pitchScores  PitchingScore[]
+  idps         IDP[]
+  fieldAudits  FieldAudit[]
+  portfolios   Portfolio[]
+  assignedUsers User[]      @relation("AssignedAssessor")
+}
+
+// ─── Assessment ───────────────────────────────────────────────────────────────
+
+model Dimension {
+  id            Int        @id
+  name          String
+  nameEn        String
+  weight        Int
+  questionCount Int
+  questions     Question[]
+}
+
+model Question {
+  id           Int        @id
+  dimensionId  Int
+  questionNo   Int
+  questionText String
+  maxScore     Int        @default(4)
+  dimension    Dimension  @relation(fields: [dimensionId], references: [id])
+  scores       Score[]
+}
+
+model Assessment {
+  id          String           @id @default(cuid())
+  storeId     String
+  round       Round
+  assessorId  String
+  status      AssessmentStatus @default(DRAFT)
+  totalScore  Float?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  submittedAt DateTime?
+
+  store    Store    @relation(fields: [storeId], references: [id])
+  assessor User     @relation(fields: [assessorId], references: [id])
+  scores   Score[]
+  redFlags RedFlag[]
+
+  @@unique([storeId, round])
+}
+
+model Score {
+  id           String      @id @default(cuid())
+  assessmentId String
+  questionId   Int
+  rawScore     Int?
+  displayScore Int?
+  note         String?
+  suggestion   String?
+  status       ScoreStatus @default(PENDING)
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id])
+  question   Question   @relation(fields: [questionId], references: [id])
+  evidences  Evidence[]
+}
+
+model Evidence {
+  id         String   @id @default(cuid())
+  scoreId    String
+  filename   String
+  fileType   String
+  fileSize   Int
+  url        String
+  uploadedAt DateTime @default(now())
+
+  score Score @relation(fields: [scoreId], references: [id])
+}
+
+model RedFlag {
+  id               String      @id @default(cuid())
+  assessmentId     String
+  type             RedFlagType
+  severity         Severity
+  triggerQuestions Int[]
+  recommendation   String?
+  resolved         Boolean     @default(false)
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id])
+}
+
+// ─── Pitching ─────────────────────────────────────────────────────────────────
+
+model PitchingScore {
+  id                     String   @id @default(cuid())
+  storeId                String
+  judgeId                String
+  round                  String
+  businessClarity        Int
+  productAppeal          Int
+  marketPlan             Int
+  financialUnderstanding Int
+  ownerReadiness         Int
+  total                  Int
+  comment                String?
+  strengths              String[] @default([])
+  concerns               String[] @default([])
+  createdAt              DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id])
+  judge User  @relation(fields: [judgeId], references: [id])
+
+  @@unique([storeId, judgeId, round])
+}
+
+// ─── IDP / Mentoring ──────────────────────────────────────────────────────────
+
+model IDP {
+  id        String   @id @default(cuid())
+  storeId   String
+  mentorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  store  Store          @relation(fields: [storeId], references: [id])
+  mentor User           @relation(fields: [mentorId], references: [id])
+  plans  IDPPlan[]
+  logs   MentoringLog[]
+
+  @@unique([storeId, mentorId])
+}
+
+model IDPPlan {
+  id          String     @id @default(cuid())
+  idpId       String
+  phase       Phase
+  issue       String
+  actionPlan  String
+  responsible String
+  dueDate     DateTime
+  progress    Int        @default(0)
+  status      PlanStatus @default(PENDING)
+
+  idp IDP @relation(fields: [idpId], references: [id])
+}
+
+model MentoringLog {
+  id        String   @id @default(cuid())
+  idpId     String
+  date      DateTime
+  note      String
+  outcome   String?
+  createdAt DateTime @default(now())
+
+  idp IDP @relation(fields: [idpId], references: [id])
+}
+
+// ─── Field Audit / Portfolio ──────────────────────────────────────────────────
+
+model FieldAudit {
+  id        String   @id @default(cuid())
+  storeId   String
+  round     Round
+  auditorId String
+  items     Json     @default("[]")
+  createdAt DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id])
+}
+
+model Portfolio {
+  id          String          @id @default(cuid())
+  storeId     String
+  dimensionId Int
+  summary     String?
+  results     String?
+  files       Json            @default("[]")
+  mentorNote  String?
+  status      PortfolioStatus @default(PENDING)
+  updatedAt   DateTime        @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, dimensionId])
+}
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+
+model Report {
+  id        String       @id @default(cuid())
+  name      String
+  type      String
+  format    String
+  province  String?
+  dateFrom  DateTime?
+  dateTo    DateTime?
+  status    ReportStatus @default(PENDING)
+  fileUrl   String?
+  createdBy String
+  createdAt DateTime     @default(now())
+}
