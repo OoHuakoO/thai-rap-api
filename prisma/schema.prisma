@@ -1,16 +1,10 @@
-// ──────────────────────────────────────────────────────────────────────────────
-// Prisma Schema — Thai RAP API
-// Provider: PostgreSQL (hosted on Supabase — treated as plain PG)
-// ──────────────────────────────────────────────────────────────────────────────
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "mysql"
+  url      = env("DATABASE_URL")
 }
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -119,8 +113,8 @@ model User {
   status       UserStatus @default(PENDING)
   avatar       String?
   lastLogin    DateTime?
-  permissions  String[]   @default([])
-  provinces    String[]   @default([])
+  permissions  Json       @default("[]")
+  provinces    Json       @default("[]")
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -152,12 +146,12 @@ model Store {
   ownerName    String
   phone        String
   email        String?
-  address      String
+  address      String      @db.Text
   socialLinks  Json        @default("{}")
   avgRevenue   Float?
-  mainProblems String?
-  goals        String?
-  photos       String[]    @default([])
+  mainProblems String?     @db.Text
+  goals        String?     @db.Text
+  photos       Json        @default("[]")
   status       StoreStatus @default(REGISTERED)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
@@ -185,7 +179,7 @@ model Question {
   id           Int        @id
   dimensionId  Int
   questionNo   Int
-  questionText String
+  questionText String     @db.Text
   maxScore     Int        @default(4)
   dimension    Dimension  @relation(fields: [dimensionId], references: [id])
   scores       Score[]
@@ -216,8 +210,8 @@ model Score {
   questionId   Int
   rawScore     Int?
   displayScore Int?
-  note         String?
-  suggestion   String?
+  note         String?     @db.Text
+  suggestion   String?     @db.Text
   status       ScoreStatus @default(PENDING)
 
   assessment Assessment @relation(fields: [assessmentId], references: [id])
@@ -242,8 +236,8 @@ model RedFlag {
   assessmentId     String
   type             RedFlagType
   severity         Severity
-  triggerQuestions Int[]
-  recommendation   String?
+  triggerQuestions Json        @default("[]")
+  recommendation   String?     @db.Text
   resolved         Boolean     @default(false)
 
   assessment Assessment @relation(fields: [assessmentId], references: [id])
@@ -262,9 +256,9 @@ model PitchingScore {
   financialUnderstanding Int
   ownerReadiness         Int
   total                  Int
-  comment                String?
-  strengths              String[] @default([])
-  concerns               String[] @default([])
+  comment                String?  @db.Text
+  strengths              Json     @default("[]")
+  concerns               Json     @default("[]")
   createdAt              DateTime @default(now())
 
   store Store @relation(fields: [storeId], references: [id])
@@ -294,8 +288,8 @@ model IDPPlan {
   id          String     @id @default(cuid())
   idpId       String
   phase       Phase
-  issue       String
-  actionPlan  String
+  issue       String     @db.Text
+  actionPlan  String     @db.Text
   responsible String
   dueDate     DateTime
   progress    Int        @default(0)
@@ -308,8 +302,8 @@ model MentoringLog {
   id        String   @id @default(cuid())
   idpId     String
   date      DateTime
-  note      String
-  outcome   String?
+  note      String   @db.Text
+  outcome   String?  @db.Text
   createdAt DateTime @default(now())
 
   idp IDP @relation(fields: [idpId], references: [id])
@@ -332,10 +326,10 @@ model Portfolio {
   id          String          @id @default(cuid())
   storeId     String
   dimensionId Int
-  summary     String?
-  results     String?
+  summary     String?         @db.Text
+  results     String?         @db.Text
   files       Json            @default("[]")
-  mentorNote  String?
+  mentorNote  String?         @db.Text
   status      PortfolioStatus @default(PENDING)
   updatedAt   DateTime        @updatedAt
 

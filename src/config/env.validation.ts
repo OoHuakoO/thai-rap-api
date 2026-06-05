@@ -8,7 +8,6 @@ export const envValidationSchema = Joi.object({
   CORS_ORIGINS: Joi.string().default('http://localhost:3001'),
 
   DATABASE_URL: Joi.string().required(),
-  DIRECT_URL: Joi.string().optional(),
 
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
