@@ -12,6 +12,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@common/exceptions/app.exception';
+import { ERROR_CODES } from '@constants/index';
 import { hashPassword, comparePassword, hashToken, compareToken } from '@shared/hash.util';
 
 export interface AuthTokens {
@@ -36,7 +37,7 @@ export class AuthService {
   async register(dto: RegisterDto): Promise<AuthResult> {
     const existing = await this.authRepository.findUserByEmail(dto.email);
     if (existing) {
-      throw new ConflictException('USER_002', 'Email already exists');
+      throw new ConflictException(ERROR_CODES.USER.EMAIL_EXISTS, 'Email already exists');
     }
 
     const hashedPassword = await hashPassword(dto.password);
@@ -45,9 +46,6 @@ export class AuthService {
       email: dto.email,
       password: hashedPassword,
       role: dto.role,
-      phone: dto.phone,
-      department: dto.department,
-      provinces: dto.provinces ?? [],
       status: UserStatus.ACTIVE,
     });
 
@@ -64,20 +62,23 @@ export class AuthService {
   async login(dto: LoginDto): Promise<AuthResult> {
     const user = await this.authRepository.findUserByEmail(dto.email);
     if (!user) {
-      throw new UnauthorizedException('AUTH_001', 'Invalid credentials');
+      throw new UnauthorizedException(ERROR_CODES.AUTH.INVALID_CREDENTIALS, 'Invalid credentials');
     }
 
     const isPasswordValid = await comparePassword(dto.password, user.password);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('AUTH_001', 'Invalid credentials');
+      throw new UnauthorizedException(ERROR_CODES.AUTH.INVALID_CREDENTIALS, 'Invalid credentials');
     }
 
     if (user.status === UserStatus.SUSPENDED) {
-      throw new ForbiddenException('AUTH_005', 'Account is suspended');
+      throw new ForbiddenException(ERROR_CODES.AUTH.ACCOUNT_SUSPENDED, 'Account is suspended');
     }
 
     if (user.status === UserStatus.PENDING) {
-      throw new ForbiddenException('AUTH_006', 'Account is pending activation');
+      throw new ForbiddenException(
+        ERROR_CODES.AUTH.ACCOUNT_PENDING,
+        'Account is pending activation',
+      );
     }
 
     const tokens = await this.issueTokens(user.id, user.email, user.role);
@@ -92,25 +93,37 @@ export class AuthService {
   async refresh(userId: string, rawRefreshToken: string): Promise<AuthTokens> {
     const tokenRecord = await this.authRepository.findRefreshToken(userId);
     if (!tokenRecord) {
-      throw new UnauthorizedException('AUTH_004', 'Refresh token not found');
+      throw new UnauthorizedException(
+        ERROR_CODES.AUTH.REFRESH_TOKEN_INVALID,
+        'Refresh token not found',
+      );
     }
 
     if (tokenRecord.revokedAt) {
-      throw new UnauthorizedException('AUTH_004', 'Refresh token has been revoked');
+      throw new UnauthorizedException(
+        ERROR_CODES.AUTH.REFRESH_TOKEN_INVALID,
+        'Refresh token has been revoked',
+      );
     }
 
     if (new Date() > tokenRecord.expiresAt) {
-      throw new UnauthorizedException('AUTH_004', 'Refresh token has expired');
+      throw new UnauthorizedException(
+        ERROR_CODES.AUTH.REFRESH_TOKEN_INVALID,
+        'Refresh token has expired',
+      );
     }
 
     const isValid = await compareToken(rawRefreshToken, tokenRecord.tokenHash);
     if (!isValid) {
-      throw new UnauthorizedException('AUTH_004', 'Refresh token is invalid');
+      throw new UnauthorizedException(
+        ERROR_CODES.AUTH.REFRESH_TOKEN_INVALID,
+        'Refresh token is invalid',
+      );
     }
 
     const user = await this.authRepository.findUserById(userId);
     if (!user) {
-      throw new NotFoundException('USER_001', 'User not found');
+      throw new NotFoundException(ERROR_CODES.USER.NOT_FOUND, 'User not found');
     }
 
     const tokens = await this.issueTokens(user.id, user.email, user.role);
@@ -129,7 +142,7 @@ export class AuthService {
   async getMe(userId: string): Promise<Omit<User, 'password'>> {
     const user = await this.authRepository.findUserById(userId);
     if (!user) {
-      throw new NotFoundException('USER_001', 'User not found');
+      throw new NotFoundException(ERROR_CODES.USER.NOT_FOUND, 'User not found');
     }
     return this.omitPassword(user);
   }

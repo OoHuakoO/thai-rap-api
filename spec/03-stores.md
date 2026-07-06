@@ -1,5 +1,9 @@
 # Stores Module — `/api/v1/stores`
 
+> Note: all list responses are wrapped in the standard `{ success, data: { items, meta } }` envelope per `00-overview.md` — the bare `{ items, meta }` shown in this file's examples is just the `data` payload. Implementation/progress status lives in `../plan/progress.md`, not here.
+
+---
+
 ## Access Summary
 
 | Action | ADMIN | ASSESSOR | MENTOR | ENTREPRENEUR | JUDGE | ME_TEAM |

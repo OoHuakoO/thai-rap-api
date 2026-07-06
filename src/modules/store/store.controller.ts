@@ -1,0 +1,56 @@
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '@common/decorators/current-user.decorator';
+import type { JwtPayload } from '@common/decorators/current-user.decorator';
+import { StoreService } from './store.service';
+import { CreateStoreDto } from './dto/create-store.dto';
+import { UpdateStoreDto, UpdateStoreStatusDto } from './dto/update-store.dto';
+import { QueryStoreDto } from './dto/query-store.dto';
+
+@ApiTags('Stores')
+@ApiBearerAuth()
+@Controller('stores')
+export class StoreController {
+  constructor(private readonly storeService: StoreService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'List stores (paginated, filterable)' })
+  findAll(@Query() query: QueryStoreDto) {
+    return this.storeService.findAll(query);
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get a store by id' })
+  findOne(@Param('id') id: string) {
+    return this.storeService.findOne(id);
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Create a store (ADMIN only)' })
+  create(@Body() dto: CreateStoreDto, @CurrentUser() user: JwtPayload) {
+    return this.storeService.create(dto, user);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update a store (ADMIN only)' })
+  update(@Param('id') id: string, @Body() dto: UpdateStoreDto, @CurrentUser() user: JwtPayload) {
+    return this.storeService.update(id, dto, user);
+  }
+
+  @Patch(':id/status')
+  @ApiOperation({ summary: "Update a store's status (ADMIN only)" })
+  updateStatus(
+    @Param('id') id: string,
+    @Body() dto: UpdateStoreStatusDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.storeService.updateStatus(id, dto, user);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a store (ADMIN only)' })
+  async remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    await this.storeService.remove(id, user);
+    return null;
+  }
+}

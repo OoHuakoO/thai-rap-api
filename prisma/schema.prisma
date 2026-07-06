@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
 }
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -103,20 +102,15 @@ enum ReportStatus {
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 model User {
-  id           String     @id @default(cuid())
-  name         String
-  email        String     @unique
-  password     String
-  phone        String?
-  role         Role
-  department   String?
-  status       UserStatus @default(PENDING)
-  avatar       String?
-  lastLogin    DateTime?
-  permissions  Json       @default("[]")
-  provinces    Json       @default("[]")
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id        String     @id @default(cuid())
+  name      String
+  email     String     @unique
+  password  String
+  role      Role
+  status    UserStatus @default(PENDING)
+  lastLogin DateTime?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   refreshToken  RefreshToken?
   assessments   Assessment[]
@@ -217,6 +211,8 @@ model Score {
   assessment Assessment @relation(fields: [assessmentId], references: [id])
   question   Question   @relation(fields: [questionId], references: [id])
   evidences  Evidence[]
+
+  @@unique([assessmentId, questionId])
 }
 
 model Evidence {

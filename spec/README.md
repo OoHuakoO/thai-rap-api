@@ -3,6 +3,8 @@
 ระบบ THAI-RAP Restaurant Survival Diagnostic System
 เทคโนโลยี: NestJS + Prisma + MySQL | Auth: JWT
 
+> Progress / implementation status tracking lives in `../plan/progress.md`, not in this spec — these files describe the target API contract only.
+
 ---
 
 ## Spec Files

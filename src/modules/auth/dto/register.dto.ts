@@ -1,14 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsEmail,
-  IsString,
-  MinLength,
-  MaxLength,
-  IsEnum,
-  IsNotIn,
-  IsOptional,
-  IsArray,
-} from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsString, MinLength, MaxLength, IsEnum, IsNotIn } from 'class-validator';
 import { Role } from '@prisma/client';
 
 export class RegisterDto {
@@ -18,7 +9,7 @@ export class RegisterDto {
   @MaxLength(100)
   name: string;
 
-  @ApiProperty({ example: 'siriwan.j@rbru.ac.th' })
+  @ApiProperty({ example: 'siriwan.j@example.com' })
   @IsEmail({}, { message: 'email must be a valid email address' })
   email: string;
 
@@ -35,22 +26,4 @@ export class RegisterDto {
   @IsEnum(Role, { message: 'role must be a valid role' })
   @IsNotIn([Role.ADMIN], { message: 'Cannot self-register as admin' })
   role: Role;
-
-  @ApiPropertyOptional({ example: '081-234-5678' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  phone?: string;
-
-  @ApiPropertyOptional({ example: 'มหาวิทยาลัยราชภัฏราไพพรรณี' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  department?: string;
-
-  @ApiPropertyOptional({ type: [String], example: ['จันทบุรี', 'ตราด'] })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  provinces?: string[];
 }

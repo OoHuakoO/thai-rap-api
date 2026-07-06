@@ -1,0 +1,61 @@
+export const ERROR_CODES = {
+  // Auth
+  AUTH: {
+    INVALID_CREDENTIALS: 'AUTH_001',
+    TOKEN_EXPIRED: 'AUTH_002',
+    UNAUTHORIZED: 'AUTH_003',
+    REFRESH_TOKEN_INVALID: 'AUTH_004',
+    ACCOUNT_SUSPENDED: 'AUTH_005',
+    ACCOUNT_PENDING: 'AUTH_006',
+  },
+
+  // User
+  USER: {
+    NOT_FOUND: 'USER_001',
+    EMAIL_EXISTS: 'USER_002',
+    FORBIDDEN: 'USER_003',
+  },
+
+  // Store
+  STORE: {
+    NOT_FOUND: 'STORE_001',
+    DUPLICATE: 'STORE_002',
+  },
+
+  // Assessment
+  ASSESS: {
+    NOT_FOUND: 'ASSESS_001',
+    DUPLICATE: 'ASSESS_002',
+    INVALID_STATE: 'ASSESS_003',
+    SUBMITTED: 'ASSESS_004',
+    NOT_ALL_SCORED: 'ASSESS_005',
+    SCORE_OUT_OF_RANGE: 'ASSESS_006',
+    QUESTION_NOT_FOUND: 'ASSESS_007',
+  },
+
+  // Validation
+  VALID: {
+    BAD_REQUEST: 'VALID_001',
+    VALIDATION_FAILED: 'VALID_001',
+  },
+
+  // Permission
+  PERM: {
+    FORBIDDEN: 'PERM_001',
+  },
+
+  // Database
+  DB: {
+    DUPLICATE: 'DB_001',
+    NOT_FOUND: 'DB_002',
+    FOREIGN_KEY: 'DB_003',
+    INVALID_DATA: 'DB_004',
+    NULL_CONSTRAINT: 'DB_005',
+    GENERIC: 'DB_999',
+  },
+
+  // System
+  SYS: {
+    UNEXPECTED: 'SYS_001',
+  },
+} as const;

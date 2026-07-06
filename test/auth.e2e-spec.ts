@@ -1,6 +1,6 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { type INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
+import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
 import { ValidationAppException } from '../src/common/exceptions/app.exception';
@@ -8,7 +8,8 @@ import type { ValidationError } from 'class-validator';
 
 describe('Auth (e2e)', () => {
   let app: INestApplication;
-  let _prisma: PrismaService;
+  let prisma: PrismaService;
+  const testEmail = `test-admin-${Date.now()}@example.com`;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -33,10 +34,11 @@ describe('Auth (e2e)', () => {
       }),
     );
     await app.init();
-    _prisma = moduleFixture.get<PrismaService>(PrismaService);
+    prisma = moduleFixture.get<PrismaService>(PrismaService);
   });
 
   afterAll(async () => {
+    await prisma.user.deleteMany({ where: { email: testEmail } });
     await app.close();
   });
 
@@ -46,14 +48,14 @@ describe('Auth (e2e)', () => {
         .post('/api/v1/auth/register')
         .send({
           name: 'Test Admin',
-          email: 'test-admin@example.com',
+          email: testEmail,
           password: 'P@ssw0rd123',
-          role: 'ADMIN',
+          role: 'ASSESSOR',
         })
         .expect(201);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.data.user.email).toBe('test-admin@example.com');
+      expect(res.body.data.user.email).toBe(testEmail);
       expect(res.body.data.user.password).toBeUndefined();
       expect(res.body.data.tokens.accessToken).toBeDefined();
     });
@@ -63,9 +65,9 @@ describe('Auth (e2e)', () => {
         .post('/api/v1/auth/register')
         .send({
           name: 'Test Admin',
-          email: 'test-admin@example.com',
+          email: testEmail,
           password: 'P@ssw0rd123',
-          role: 'ADMIN',
+          role: 'ASSESSOR',
         })
         .expect(409);
     });
@@ -85,7 +87,7 @@ describe('Auth (e2e)', () => {
     it('should login with valid credentials', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
-        .send({ email: 'test-admin@example.com', password: 'P@ssw0rd123' })
+        .send({ email: testEmail, password: 'P@ssw0rd123' })
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -95,7 +97,7 @@ describe('Auth (e2e)', () => {
     it('should return 401 with invalid password', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/auth/login')
-        .send({ email: 'test-admin@example.com', password: 'wrongpassword' })
+        .send({ email: testEmail, password: 'wrongpassword' })
         .expect(401);
 
       expect(res.body.error.code).toBe('AUTH_001');

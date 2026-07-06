@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -7,6 +8,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   constructor() {
     super({
+      adapter: new PrismaMariaDb(process.env.DATABASE_URL as string),
       log:
         process.env.NODE_ENV === 'development'
           ? [
@@ -31,13 +33,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     if (process.env.NODE_ENV !== 'test') {
       throw new Error('cleanDatabase() can only be called in test environment');
     }
-    const tablenames = await this.$queryRaw<{ tablename: string }[]>`
-      SELECT tablename FROM pg_tables WHERE schemaname='public'
+    await this.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 0');
+    const tables = await this.$queryRaw<{ TABLE_NAME: string }[]>`
+      SELECT TABLE_NAME FROM information_schema.tables
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME != '_prisma_migrations'
     `;
-    for (const { tablename } of tablenames) {
-      if (tablename !== '_prisma_migrations') {
-        await this.$executeRawUnsafe(`TRUNCATE TABLE "public"."${tablename}" CASCADE;`);
-      }
+    for (const { TABLE_NAME } of tables) {
+      await this.$executeRawUnsafe(`TRUNCATE TABLE \`${TABLE_NAME}\``);
     }
+    await this.$executeRawUnsafe('SET FOREIGN_KEY_CHECKS = 1');
   }
 }

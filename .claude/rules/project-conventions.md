@@ -22,7 +22,7 @@ Register in `src/app.module.ts`.
 ---
 
 ## Path Aliases
-Always use `@common/`, `@modules/`, `@shared/`, `@database/`, `@config/`. Never relative `../../`.
+Always use `@common/`, `@modules/`, `@shared/`, `@database/`, `@config/`, `@constants/`. Never relative `../../`.
 
 ---
 
@@ -37,6 +37,20 @@ Always use `@common/`, `@modules/`, `@shared/`, `@database/`, `@config/`. Never 
 
 ---
 
+## Constants
+All error codes live in `src/common/constants/error-codes.const.ts`. Never hardcode error code strings inline.
+
+```ts
+import { ERROR_CODES } from '@constants/index';
+
+throw new NotFoundException(ERROR_CODES.STORE.NOT_FOUND, 'Store not found');
+throw new ConflictException(ERROR_CODES.ASSESS.DUPLICATE, 'Assessment already exists');
+```
+
+When adding a new domain, add its codes to `ERROR_CODES` in `error-codes.const.ts` first.
+
+---
+
 ## Exceptions
 Never throw NestJS built-ins. Always use subclasses from `@common/exceptions/app.exception`:
 ```ts
@@ -47,11 +61,12 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@common/exceptions/app.exception';
+import { ERROR_CODES } from '@constants/index';
 
-throw new NotFoundException('STORE_001', 'Store not found');
-throw new ConflictException('ASSESS_001', 'Assessment already exists for this round');
-throw new BadRequestException('ASSESS_002', 'All 50 questions must be scored before submitting');
-throw new ForbiddenException('PERM_001', 'Not assigned to this store');
+throw new NotFoundException(ERROR_CODES.STORE.NOT_FOUND, 'Store not found');
+throw new ConflictException(ERROR_CODES.ASSESS.DUPLICATE, 'Assessment already exists for this round');
+throw new BadRequestException(ERROR_CODES.ASSESS.INVALID_STATE, 'All 50 questions must be scored before submitting');
+throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'Not assigned to this store');
 ```
 
 ### Error Code Catalog

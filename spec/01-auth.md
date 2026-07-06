@@ -16,14 +16,17 @@ Login with email + password. Returns access token and refresh token.
 **Response 200**
 ```json
 {
-  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
   "user": {
     "id": "clxxxxx",
     "name": "Admin User",
     "email": "admin@example.com",
     "role": "ADMIN",
     "status": "ACTIVE"
+  },
+  "tokens": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
+    "expiresIn": 900
   }
 }
 ```
@@ -35,7 +38,7 @@ Login with email + password. Returns access token and refresh token.
 ---
 
 ### POST /auth/register [PUBLIC]
-Register new user. Default status is `PENDING` (Admin must activate).
+Register new user. No `phone` field. `role` accepts any `Role` **except `ADMIN`** (`@IsNotIn([Role.ADMIN])`) — self-registration cannot create an admin account.
 
 **Body**
 ```json
@@ -43,29 +46,20 @@ Register new user. Default status is `PENDING` (Admin must activate).
   "name": "John Doe",
   "email": "john@example.com",
   "password": "secret123",
-  "phone": "0812345678",
   "role": "ENTREPRENEUR"
 }
 ```
 
-**Response 201**
-```json
-{
-  "id": "clxxxxx",
-  "name": "John Doe",
-  "email": "john@example.com",
-  "role": "ENTREPRENEUR",
-  "status": "PENDING"
-}
-```
+**Response 201** — same shape as `POST /auth/login` (`{ user, tokens }`); registering logs the user in immediately.
 
 **Errors**
 - `409 CONFLICT` — Email already exists
+- `422` — `role` is `ADMIN`, or other validation failure
 
 ---
 
 ### POST /auth/refresh [PUBLIC]
-Exchange refresh token for new access token.
+Exchange refresh token for new access token. The refresh token is validated via a dedicated `JwtRefreshStrategy` reading it from the **body**, not the `Authorization` header.
 
 **Body**
 ```json
@@ -78,7 +72,8 @@ Exchange refresh token for new access token.
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIs..."
+  "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
+  "expiresIn": 900
 }
 ```
 

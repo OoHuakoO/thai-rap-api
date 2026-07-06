@@ -2,6 +2,8 @@
 
 Covers: Dimensions, Questions, Assessments, Scores, Evidences
 
+> Implementation/progress status lives in `../plan/progress.md`, not here.
+
 ---
 
 ## Dimensions & Questions (Seed / Read-only)
@@ -109,7 +111,7 @@ List assessments with filtering.
 ---
 
 ### GET /assessments/:id
-Get full assessment detail including all 50 scores and red flags.
+Get full assessment detail including all 50 scores and red flags. The `scores` array always contains all 50 questions merged with any existing scores — unscored questions come back with `rawScore: null` rather than being omitted.
 
 **Response 200**
 ```json

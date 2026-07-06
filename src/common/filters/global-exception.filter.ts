@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import type { Response, Request } from 'express';
 import { Prisma } from '@prisma/client';
+import { ERROR_CODES } from '@constants/index';
 import type { ApiErrorResponse } from '../types/api-response.type';
 
 interface PrismaErrorMapping {
@@ -17,29 +18,40 @@ interface PrismaErrorMapping {
 }
 
 const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapping> = {
-  P2002: { code: 'DB_001', status: HttpStatus.CONFLICT, message: 'Unique constraint violation' },
-  P2025: { code: 'DB_002', status: HttpStatus.NOT_FOUND, message: 'Record not found' },
+  P2002: {
+    code: ERROR_CODES.DB.DUPLICATE,
+    status: HttpStatus.CONFLICT,
+    message: 'Unique constraint violation',
+  },
+  P2025: {
+    code: ERROR_CODES.DB.NOT_FOUND,
+    status: HttpStatus.NOT_FOUND,
+    message: 'Record not found',
+  },
   P2003: {
-    code: 'DB_003',
+    code: ERROR_CODES.DB.FOREIGN_KEY,
     status: HttpStatus.BAD_REQUEST,
     message: 'Foreign key constraint violation',
   },
-  P2000: { code: 'DB_004', status: HttpStatus.BAD_REQUEST, message: 'Invalid data' },
+  P2000: {
+    code: ERROR_CODES.DB.INVALID_DATA,
+    status: HttpStatus.BAD_REQUEST,
+    message: 'Invalid data',
+  },
   P2014: {
-    code: 'DB_005',
+    code: ERROR_CODES.DB.NULL_CONSTRAINT,
     status: HttpStatus.BAD_REQUEST,
     message: 'Required relation violation',
   },
 };
 
 const HTTP_STATUS_TO_CODE: Record<number, string> = {
-  [HttpStatus.BAD_REQUEST]: 'VALID_001',
-  [HttpStatus.UNAUTHORIZED]: 'AUTH_003',
-  [HttpStatus.FORBIDDEN]: 'PERM_001',
-  [HttpStatus.NOT_FOUND]: 'DB_002',
-  [HttpStatus.CONFLICT]: 'DB_001',
-  [HttpStatus.TOO_MANY_REQUESTS]: 'RATE_001',
-  [HttpStatus.UNPROCESSABLE_ENTITY]: 'VALID_001',
+  [HttpStatus.BAD_REQUEST]: ERROR_CODES.VALID.BAD_REQUEST,
+  [HttpStatus.UNAUTHORIZED]: ERROR_CODES.AUTH.UNAUTHORIZED,
+  [HttpStatus.FORBIDDEN]: ERROR_CODES.PERM.FORBIDDEN,
+  [HttpStatus.NOT_FOUND]: ERROR_CODES.DB.NOT_FOUND,
+  [HttpStatus.CONFLICT]: ERROR_CODES.DB.DUPLICATE,
+  [HttpStatus.UNPROCESSABLE_ENTITY]: ERROR_CODES.VALID.VALIDATION_FAILED,
 };
 
 @Catch()
@@ -73,7 +85,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         status: HttpStatus.BAD_REQUEST,
         payload: {
           success: false,
-          error: { code: 'DB_004', message: 'Invalid data provided to database' },
+          error: {
+            code: ERROR_CODES.DB.INVALID_DATA,
+            message: 'Invalid data provided to database',
+          },
         },
       };
     }
@@ -87,7 +102,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       payload: {
         success: false,
-        error: { code: 'SYS_001', message: 'An unexpected error occurred' },
+        error: { code: ERROR_CODES.SYS.UNEXPECTED, message: 'An unexpected error occurred' },
       },
     };
   }
@@ -105,7 +120,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       this.logger.warn(`[${request.method}] ${request.url} → ${status}`);
     }
 
-    // AppException / ValidationAppException — already has { code, message, details? }
     if (exceptionResponse.code) {
       return {
         status,
@@ -120,7 +134,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       };
     }
 
-    // Standard NestJS HttpException with array of validation messages
     const messages = exceptionResponse.message;
     if (Array.isArray(messages)) {
       return {
@@ -128,7 +141,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         payload: {
           success: false,
           error: {
-            code: 'VALID_001',
+            code: ERROR_CODES.VALID.VALIDATION_FAILED,
             message: 'Validation failed',
             details: messages.map((msg: string) => ({
               field: msg.split(' ')[0] ?? 'unknown',
@@ -144,7 +157,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       payload: {
         success: false,
         error: {
-          code: HTTP_STATUS_TO_CODE[status] ?? 'SYS_001',
+          code: HTTP_STATUS_TO_CODE[status] ?? ERROR_CODES.SYS.UNEXPECTED,
           message: (messages as string) ?? exception.message,
         },
       },
@@ -170,7 +183,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     return {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
-      payload: { success: false, error: { code: 'DB_999', message: 'Database error' } },
+      payload: {
+        success: false,
+        error: { code: ERROR_CODES.DB.GENERIC, message: 'Database error' },
+      },
     };
   }
 }
