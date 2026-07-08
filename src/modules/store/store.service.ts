@@ -1,14 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import { Role, type Store } from '@prisma/client';
+import { Role, Round, StoreStatus, type Store } from '@prisma/client';
 import type { PaginatedResult } from '@common/types/api-response.type';
 import { NotFoundException, ForbiddenException } from '@common/exceptions/app.exception';
-import { ERROR_CODES } from '@constants/index';
+import { ERROR_CODES, STORE_TARGET_TOTAL } from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { StoreRepository } from './store.repository';
 import type { CreateStoreDto } from './dto/create-store.dto';
 import type { UpdateStoreDto, UpdateStoreStatusDto } from './dto/update-store.dto';
 import type { QueryStoreDto } from './dto/query-store.dto';
+import type { StoreStats } from './types/store-stats.type';
+
+const PASSED_STATUSES: StoreStatus[] = [StoreStatus.SELECTED, StoreStatus.CONDITIONAL_SELECTED];
 
 @Injectable()
 export class StoreService {
@@ -21,6 +24,25 @@ export class StoreService {
       this.storeRepo.count(query),
     ]);
     return buildPaginatedResult(items, total, page, limit);
+  }
+
+  async getStats(): Promise<StoreStats> {
+    const [total, t0CompletedCount, t1CompletedCount, passedCount, byProvince] = await Promise.all([
+      this.storeRepo.countAll(),
+      this.storeRepo.countDistinctStoresByRound(Round.T0),
+      this.storeRepo.countDistinctStoresByRound(Round.T1),
+      this.storeRepo.countByStatus(PASSED_STATUSES),
+      this.storeRepo.countByProvince(),
+    ]);
+
+    return {
+      total,
+      targetTotal: STORE_TARGET_TOTAL,
+      t0CompletedCount,
+      t1CompletedCount,
+      passedCount,
+      byProvince,
+    };
   }
 
   async findOne(id: string): Promise<Store> {

@@ -19,6 +19,12 @@ export class StoreController {
     return this.storeService.findAll(query);
   }
 
+  @Get('stats')
+  @ApiOperation({ summary: 'Get aggregate store stats for the dashboard' })
+  getStats() {
+    return this.storeService.getStats();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get a store by id' })
   findOne(@Param('id') id: string) {
