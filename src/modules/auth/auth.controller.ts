@@ -19,9 +19,9 @@ export class AuthController {
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Register a new user' })
-  @ApiResponse({ status: 201, description: 'User registered successfully' })
-  @ApiResponse({ status: 409, description: 'Email already exists' })
-  @ApiResponse({ status: 422, description: 'Validation failed' })
+  @ApiResponse({ status: HttpStatus.CREATED, description: 'User registered successfully' })
+  @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Email already exists' })
+  @ApiResponse({ status: HttpStatus.UNPROCESSABLE_ENTITY, description: 'Validation failed' })
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
   }
@@ -30,9 +30,9 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with email and password' })
-  @ApiResponse({ status: 200, description: 'Login successful' })
-  @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  @ApiResponse({ status: 422, description: 'Validation failed' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Login successful' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Invalid credentials' })
+  @ApiResponse({ status: HttpStatus.UNPROCESSABLE_ENTITY, description: 'Validation failed' })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
   }
@@ -43,8 +43,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token using refresh token' })
   @ApiBody({ type: RefreshTokenDto })
-  @ApiResponse({ status: 200, description: 'New tokens issued' })
-  @ApiResponse({ status: 401, description: 'Refresh token invalid or expired' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'New tokens issued' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Refresh token invalid or expired' })
   refresh(@CurrentUser() user: RefreshJwtPayload) {
     return this.authService.refresh(user.sub, user.refreshToken);
   }
@@ -53,8 +53,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Logout and revoke refresh token' })
-  @ApiResponse({ status: 200, description: 'Logged out successfully' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Logged out successfully' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized' })
   async logout(@CurrentUser() user: JwtPayload) {
     await this.authService.logout(user.sub);
     return null;
@@ -63,8 +63,8 @@ export class AuthController {
   @Get('me')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current authenticated user' })
-  @ApiResponse({ status: 200, description: 'Current user profile' })
-  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Current user profile' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized' })
   getMe(@CurrentUser() user: JwtPayload) {
     return this.authService.getMe(user.sub);
   }

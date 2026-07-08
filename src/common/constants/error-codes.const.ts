@@ -44,6 +44,13 @@ export const ERROR_CODES = {
     FORBIDDEN: 'PERM_001',
   },
 
+  // File upload
+  FILE: {
+    INVALID_TYPE: 'FILE_001',
+    TOO_LARGE: 'FILE_002',
+    NOT_FOUND: 'FILE_003',
+  },
+
   // Database
   DB: {
     DUPLICATE: 'DB_001',

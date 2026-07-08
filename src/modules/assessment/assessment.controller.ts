@@ -2,21 +2,33 @@ import {
   Body,
   Controller,
   Delete,
+  FileTypeValidator,
   Get,
+  MaxFileSizeValidator,
   Param,
+  ParseFilePipe,
   ParseIntPipe,
   Post,
   Put,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
+import { BadRequestException } from '@common/exceptions/app.exception';
+import { ERROR_CODES } from '@constants/index';
 import { AssessmentService } from './assessment.service';
 import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import { UpdateScoreDto } from './dto/update-score.dto';
 import { BulkScoreDto } from './dto/bulk-score.dto';
 import { QueryAssessmentDto } from './dto/query-assessment.dto';
+
+const MAX_EVIDENCE_FILE_SIZE = 10 * 1024 * 1024;
+const EVIDENCE_MIME_REGEX =
+  /^(image\/(jpeg|png|webp)|application\/(pdf|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet))$/;
 
 @ApiTags('Assessment')
 @ApiBearerAuth()
@@ -61,6 +73,52 @@ export class AssessmentController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.assessmentService.bulkUpdateScores(id, dto, user);
+  }
+
+  @Post(':id/scores/:questionId/evidence')
+  @ApiOperation({ summary: 'Upload an evidence file for a scored question (stored on local disk)' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+      required: ['file'],
+    },
+  })
+  @UseInterceptors(FileInterceptor('file'))
+  uploadEvidence(
+    @Param('id') id: string,
+    @Param('questionId', ParseIntPipe) questionId: number,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: MAX_EVIDENCE_FILE_SIZE }),
+          new FileTypeValidator({ fileType: EVIDENCE_MIME_REGEX }),
+        ],
+        exceptionFactory: (error: string) =>
+          error.toLowerCase().includes('size')
+            ? new BadRequestException(ERROR_CODES.FILE.TOO_LARGE, 'File exceeds the 10 MB limit')
+            : new BadRequestException(
+                ERROR_CODES.FILE.INVALID_TYPE,
+                'Only jpeg, png, webp, pdf, or xlsx files are allowed',
+              ),
+      }),
+    )
+    file: Express.Multer.File,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.assessmentService.uploadEvidence(id, questionId, file, user);
+  }
+
+  @Delete(':id/evidence/:evidenceId')
+  @ApiOperation({ summary: 'Delete an evidence file (removes DB row and local file)' })
+  async removeEvidence(
+    @Param('id') id: string,
+    @Param('evidenceId') evidenceId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    await this.assessmentService.removeEvidence(id, evidenceId, user);
+    return null;
   }
 
   @Get(':id/scores/progress')

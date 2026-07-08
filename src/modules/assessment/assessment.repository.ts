@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import type { Assessment, Prisma, RedFlag, Round, Score } from '@prisma/client';
+import type { Assessment, Evidence, Prisma, RedFlag, Round, Score } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 import type { QueryAssessmentDto } from './dto/query-assessment.dto';
 
 const assessmentDetailInclude = {
-  scores: { include: { question: { include: { dimension: true } } } },
+  scores: { include: { question: { include: { dimension: true } }, evidences: true } },
   redFlags: true,
 } satisfies Prisma.AssessmentInclude;
 
@@ -70,6 +70,34 @@ export class AssessmentRepository {
 
   countScored(assessmentId: string): Promise<number> {
     return this.prisma.score.count({ where: { assessmentId, rawScore: { not: null } } });
+  }
+
+  findScore(assessmentId: string, questionId: number): Promise<Score | null> {
+    return this.prisma.score.findUnique({
+      where: { assessmentId_questionId: { assessmentId, questionId } },
+    });
+  }
+
+  createEvidence(
+    scoreId: string,
+    data: { filename: string; fileType: string; fileSize: number; url: string },
+  ): Promise<Evidence> {
+    return this.prisma.evidence.create({ data: { scoreId, ...data } });
+  }
+
+  findEvidenceByScoreId(scoreId: string): Promise<Evidence[]> {
+    return this.prisma.evidence.findMany({ where: { scoreId }, orderBy: { uploadedAt: 'asc' } });
+  }
+
+  findEvidenceById(id: string): Promise<(Evidence & { score: { assessmentId: string } }) | null> {
+    return this.prisma.evidence.findUnique({
+      where: { id },
+      include: { score: { select: { assessmentId: true } } },
+    });
+  }
+
+  removeEvidence(id: string): Promise<Evidence> {
+    return this.prisma.evidence.delete({ where: { id } });
   }
 
   async submitAssessment(

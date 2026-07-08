@@ -7,10 +7,12 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { ValidationAppException } from './common/exceptions/app.exception';
+import { UPLOADS_ROOT } from '@shared/file-storage.util';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { ValidationError } from 'class-validator';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
 
   // ── Logger ─────────────────────────────────────────────────────────────────
   app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
@@ -23,7 +25,8 @@ async function bootstrap() {
   const isProduction = configService.get<string>('app.env') === 'production';
 
   // ── Security Middleware ────────────────────────────────────────────────────
-  app.use(helmet());
+  // CORP must be cross-origin so the web app (different port) can load /uploads files
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(cookieParser());
   app.enableCors({
     origin: corsOrigins,
@@ -31,6 +34,9 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
+
+  // ── Static Files (local uploads) ───────────────────────────────────────────
+  app.useStaticAssets(UPLOADS_ROOT, { prefix: '/uploads/' });
 
   // ── API Versioning & Prefix ────────────────────────────────────────────────
   app.setGlobalPrefix(`${apiPrefix}/v${apiVersion}`);

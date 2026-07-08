@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Role, type Assessment } from '@prisma/client';
+import { Role, type Assessment, type Evidence } from '@prisma/client';
 import {
   NotFoundException,
   ConflictException,
@@ -8,6 +8,7 @@ import {
 } from '@common/exceptions/app.exception';
 import { ERROR_CODES } from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
+import { saveLocalFile, deleteLocalFile } from '@shared/file-storage.util';
 import type { PaginatedResult } from '@common/types/api-response.type';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { StoreService } from '@modules/store/store.service';
@@ -27,6 +28,15 @@ import {
 
 const TOTAL_QUESTIONS = 50;
 
+export interface EvidenceResult {
+  id: string;
+  filename: string;
+  fileType: string;
+  fileSize: number;
+  url: string;
+  uploadedAt: Date;
+}
+
 export interface AssessmentQuestionResult {
   questionId: number;
   questionNo: number;
@@ -36,6 +46,7 @@ export interface AssessmentQuestionResult {
   rawScore: number | null;
   note: string | null;
   suggestion: string | null;
+  evidence: EvidenceResult[];
 }
 
 export interface AssessmentResult {
@@ -121,7 +132,51 @@ export class AssessmentService {
       rawScore: score.rawScore,
       note: score.note,
       suggestion: score.suggestion,
+      evidence: await this.findEvidenceForScore(score.id),
     };
+  }
+
+  async uploadEvidence(
+    assessmentId: string,
+    questionId: number,
+    file: Express.Multer.File,
+    user: JwtPayload,
+  ): Promise<EvidenceResult> {
+    this.assertCanWrite(user);
+    await this.assertDraftOrInProgress(assessmentId);
+
+    const score = await this.assessmentRepo.findScore(assessmentId, questionId);
+    if (!score) {
+      throw new BadRequestException(
+        ERROR_CODES.ASSESS.INVALID_STATE,
+        'Score the question before attaching evidence',
+      );
+    }
+
+    // Multer decodes the multipart filename as latin1 — re-decode as UTF-8 so
+    // Thai filenames survive.
+    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    const saved = await saveLocalFile(`evidence/${assessmentId}`, originalName, file.buffer);
+    const evidence = await this.assessmentRepo.createEvidence(score.id, {
+      filename: originalName,
+      fileType: file.mimetype,
+      fileSize: file.size,
+      url: saved.relativeUrl,
+    });
+    return this.toEvidenceResult(evidence);
+  }
+
+  async removeEvidence(assessmentId: string, evidenceId: string, user: JwtPayload): Promise<void> {
+    this.assertCanWrite(user);
+    await this.assertDraftOrInProgress(assessmentId);
+
+    const evidence = await this.assessmentRepo.findEvidenceById(evidenceId);
+    if (!evidence || evidence.score.assessmentId !== assessmentId) {
+      throw new NotFoundException(ERROR_CODES.FILE.NOT_FOUND, 'Evidence file not found');
+    }
+
+    await this.assessmentRepo.removeEvidence(evidenceId);
+    await deleteLocalFile(evidence.url);
   }
 
   async bulkUpdateScores(
@@ -225,6 +280,7 @@ export class AssessmentService {
         rawScore: score?.rawScore ?? null,
         note: score?.note ?? null,
         suggestion: score?.suggestion ?? null,
+        evidence: (score?.evidences ?? []).map((e) => this.toEvidenceResult(e)),
       };
     });
 
@@ -241,6 +297,22 @@ export class AssessmentService {
       submittedAt: assessment.submittedAt,
       questions,
       redFlags: assessment.redFlags,
+    };
+  }
+
+  private async findEvidenceForScore(scoreId: string): Promise<EvidenceResult[]> {
+    const evidences = await this.assessmentRepo.findEvidenceByScoreId(scoreId);
+    return evidences.map((e) => this.toEvidenceResult(e));
+  }
+
+  private toEvidenceResult(evidence: Evidence): EvidenceResult {
+    return {
+      id: evidence.id,
+      filename: evidence.filename,
+      fileType: evidence.fileType,
+      fileSize: evidence.fileSize,
+      url: evidence.url,
+      uploadedAt: evidence.uploadedAt,
     };
   }
 
