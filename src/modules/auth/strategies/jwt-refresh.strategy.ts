@@ -9,25 +9,27 @@ export interface RefreshJwtPayload extends JwtPayload {
   refreshToken: string;
 }
 
+function extractRefreshTokenFromCookie(req: Request): string | null {
+  const cookies = req.cookies as Record<string, string> | undefined;
+  return cookies?.refreshToken ?? null;
+}
+
 @Injectable()
 export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh') {
   constructor(configService: ConfigService) {
     super({
-      jwtFromRequest: ExtractJwt.fromBodyField('refreshToken'),
+      jwtFromRequest: ExtractJwt.fromExtractors([extractRefreshTokenFromCookie]),
       secretOrKey: configService.get<string>('auth.jwtRefreshSecret'),
       passReqToCallback: true,
     });
   }
 
-  validate(
-    req: Request & { body: { refreshToken: string } },
-    payload: { sub: string; email: string; role: string },
-  ): RefreshJwtPayload {
+  validate(req: Request, payload: { sub: string; email: string; role: string }): RefreshJwtPayload {
     return {
       sub: payload.sub,
       email: payload.email,
       role: payload.role,
-      refreshToken: req.body.refreshToken,
+      refreshToken: extractRefreshTokenFromCookie(req) ?? '',
     };
   }
 }
