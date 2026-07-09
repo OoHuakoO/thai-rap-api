@@ -58,6 +58,7 @@ describe('AuthService', () => {
                 'auth.jwtAccessSecret': 'test-access-secret',
                 'auth.jwtRefreshSecret': 'test-refresh-secret',
                 'auth.jwtAccessExpiresIn': '15m',
+                'auth.jwtAccessExpiresInSeconds': 900,
                 'auth.jwtRefreshExpiresIn': '7d',
                 'auth.jwtRefreshExpiresInDays': 7,
               };

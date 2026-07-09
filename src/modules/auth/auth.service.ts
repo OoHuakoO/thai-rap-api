@@ -149,6 +149,7 @@ export class AuthService {
 
   private async issueTokens(userId: string, email: string, role: string): Promise<AuthTokens> {
     const payload = { sub: userId, email, role };
+    const expiresIn = this.configService.get<number>('auth.jwtAccessExpiresInSeconds', 900);
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
@@ -161,7 +162,7 @@ export class AuthService {
       }),
     ]);
 
-    return { accessToken, refreshToken, expiresIn: 900 };
+    return { accessToken, refreshToken, expiresIn };
   }
 
   private async storeRefreshToken(userId: string, rawToken: string): Promise<void> {
