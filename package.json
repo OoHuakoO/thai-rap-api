@@ -22,6 +22,7 @@
     "db:migrate:prod": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:seed": "ts-node prisma/seed.ts",
+    "postinstall": "prisma generate",
     "prepare": "husky"
   },
   "dependencies": {

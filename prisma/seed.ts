@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
-import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient({ adapter: new PrismaMariaDb(process.env.DATABASE_URL as string) });
 
@@ -175,73 +174,6 @@ async function main(): Promise<void> {
   }
 
   console.log(`Seeded ${DIMENSIONS.length} dimensions and ${questionNo} questions.`);
-
-  if (process.env.NODE_ENV !== 'production') {
-    await seedDevData();
-  }
-}
-
-// Dev-only fixtures: login accounts and sample stores for local testing.
-const DEV_USERS = [
-  { name: 'ผู้ดูแลระบบ (Dev)', email: 'admin@thairap.local', role: 'ADMIN' as const },
-  { name: 'ผู้ประเมิน (Dev)', email: 'assessor@thairap.local', role: 'ASSESSOR' as const },
-];
-
-const DEV_STORES = [
-  {
-    name: 'บ้านริมน้ำ จันทบุรี',
-    province: 'จันทบุรี',
-    storeType: 'อาหารไทย',
-    ownerName: 'สมชาย ริมเอิน',
-  },
-  { name: 'ครัวทะเลสด', province: 'ชลบุรี', storeType: 'อาหารทะเล', ownerName: 'วิชัย ทะเลสวย' },
-  { name: 'สวนริมสุข Cafe', province: 'ระยอง', storeType: 'คาเฟ่', ownerName: 'พรทิพย์ สุขใจ' },
-  { name: 'ตราดซีฟู้ด', province: 'ตราด', storeType: 'อาหารทะเล', ownerName: 'สุรชัย ทะเลกว้าง' },
-  {
-    name: 'ฉะเชิงเทรา กูร์เมต์',
-    province: 'ฉะเชิงเทรา',
-    storeType: 'อาหารไทย',
-    ownerName: 'นภา แปดริ้ว',
-  },
-  {
-    name: 'บ้านสวนเพลินใจ',
-    province: 'ปราจีนบุรี',
-    storeType: 'อาหารไทย',
-    ownerName: 'มานพ เพลินใจ',
-  },
-  { name: 'ครัวบ้านคลอง', province: 'สระแก้ว', storeType: 'อาหารไทย', ownerName: 'สมพร คลองสวย' },
-  {
-    name: 'เม็ดทราย ซีไซด์',
-    province: 'ชลบุรี',
-    storeType: 'คาเฟ่/เบเกอรี่',
-    ownerName: 'ยุพา ทรายทอง',
-  },
-];
-
-async function seedDevData(): Promise<void> {
-  const password = await bcrypt.hash('P@ssw0rd!', 12);
-  for (const user of DEV_USERS) {
-    await prisma.user.upsert({
-      where: { email: user.email },
-      update: { role: user.role, status: 'ACTIVE' },
-      create: { ...user, password, status: 'ACTIVE' },
-    });
-  }
-
-  for (const store of DEV_STORES) {
-    const existing = await prisma.store.findFirst({ where: { name: store.name } });
-    if (!existing) {
-      await prisma.store.create({
-        data: {
-          ...store,
-          phone: '0810000000',
-          address: `ต.ตัวอย่าง อ.เมือง จ.${store.province}`,
-        },
-      });
-    }
-  }
-
-  console.log(`Seeded ${DEV_USERS.length} dev users and ${DEV_STORES.length} sample stores.`);
 }
 
 main()
