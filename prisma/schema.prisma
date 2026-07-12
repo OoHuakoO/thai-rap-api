@@ -112,12 +112,12 @@ model User {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  refreshToken  RefreshToken?
-  assessments   Assessment[]
-  pitchScores   PitchingScore[]
-  idps          IDP[]
-  assignedStores Store[]        @relation("AssignedAssessor")
-  ownedStores    Store[]        @relation("StoreOwner")
+  refreshToken   RefreshToken?
+  assessments    Assessment[]
+  pitchScores    PitchingScore[]
+  idps           IDP[]
+  assignedStores Store[]         @relation("AssignedAssessor")
+  ownedStores    Store[]         @relation("StoreOwner")
 }
 
 model RefreshToken {
@@ -134,31 +134,46 @@ model RefreshToken {
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 model Store {
-  id           String      @id @default(cuid())
-  name         String
-  province     String
-  storeType    String
-  ownerName    String
-  phone        String
-  email        String?
-  address      String      @db.Text
-  socialLinks  Json        @default("{}")
-  avgRevenue   Float?
-  mainProblems String?     @db.Text
-  goals        String?     @db.Text
-  photos       Json        @default("[]")
-  status       StoreStatus @default(REGISTERED)
-  ownerId      String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id               String      @id @default(cuid())
+  name             String
+  province         String
+  storeType        String
+  ownerName        String
+  phone            String
+  email            String?
+  address          String      @db.Text
+  socialLinks      Json        @default("{}")
+  avgRevenue       Float?
+  mainProblems     Json        @default("[]")
+  goals            Json        @default("[]")
+  photos           Json        @default("[]")
+  logoUrl          String?
+  storefrontPhotos Json        @default("[]")
+  status           StoreStatus @default(REGISTERED)
+  ownerId          String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
-  owner        User?       @relation("StoreOwner", fields: [ownerId], references: [id])
-  assessments  Assessment[]
-  pitchScores  PitchingScore[]
-  idps         IDP[]
-  fieldAudits  FieldAudit[]
-  portfolios   Portfolio[]
-  assignedUsers User[]      @relation("AssignedAssessor")
+  owner         User?           @relation("StoreOwner", fields: [ownerId], references: [id])
+  assessments   Assessment[]
+  pitchScores   PitchingScore[]
+  idps          IDP[]
+  fieldAudits   FieldAudit[]
+  portfolios    Portfolio[]
+  documents     StoreDocument[]
+  assignedUsers User[]          @relation("AssignedAssessor")
+}
+
+model StoreDocument {
+  id         String   @id @default(cuid())
+  storeId    String
+  filename   String
+  fileType   String
+  fileSize   Int
+  url        String
+  uploadedAt DateTime @default(now())
+
+  store Store @relation(fields: [storeId], references: [id])
 }
 
 // ─── Lookup ───────────────────────────────────────────────────────────────────
@@ -180,12 +195,12 @@ model Dimension {
 }
 
 model Question {
-  id           Int        @id
+  id           Int       @id
   dimensionId  Int
   questionNo   Int
-  questionText String     @db.Text
-  maxScore     Int        @default(4)
-  dimension    Dimension  @relation(fields: [dimensionId], references: [id])
+  questionText String    @db.Text
+  maxScore     Int       @default(4)
+  dimension    Dimension @relation(fields: [dimensionId], references: [id])
   scores       Score[]
 }
 
@@ -200,8 +215,8 @@ model Assessment {
   updatedAt   DateTime         @updatedAt
   submittedAt DateTime?
 
-  store    Store    @relation(fields: [storeId], references: [id])
-  assessor User     @relation(fields: [assessorId], references: [id])
+  store    Store     @relation(fields: [storeId], references: [id])
+  assessor User      @relation(fields: [assessorId], references: [id])
   scores   Score[]
   redFlags RedFlag[]
 

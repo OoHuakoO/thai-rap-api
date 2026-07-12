@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsNumber, IsObject, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsArray,
+  IsEmail,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreateStoreDto {
   @ApiProperty({ example: 'ร้านส้มตำป้าแดง' })
@@ -47,15 +56,17 @@ export class CreateStoreDto {
   @Min(0)
   avgRevenue?: number;
 
-  @ApiPropertyOptional({ example: 'ยอดขายไม่แน่นอน ต้นทุนสูง' })
+  @ApiPropertyOptional({ example: ['ยอดขายไม่แน่นอน', 'ต้นทุนสูง'], type: [String] })
   @IsOptional()
-  @IsString()
-  mainProblems?: string;
+  @IsArray()
+  @IsString({ each: true })
+  mainProblems?: string[];
 
-  @ApiPropertyOptional({ example: 'เพิ่มยอดขาย 20% ใน 6 เดือน' })
+  @ApiPropertyOptional({ example: ['เพิ่มยอดขาย 20% ใน 6 เดือน'], type: [String] })
   @IsOptional()
-  @IsString()
-  goals?: string;
+  @IsArray()
+  @IsString({ each: true })
+  goals?: string[];
 
   @ApiPropertyOptional({
     description:

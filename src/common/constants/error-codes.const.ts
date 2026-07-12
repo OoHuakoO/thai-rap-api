@@ -21,6 +21,7 @@ export const ERROR_CODES = {
     NOT_FOUND: 'STORE_001',
     DUPLICATE: 'STORE_002',
     INVALID_PROVINCE: 'STORE_003',
+    DOCUMENT_NOT_FOUND: 'STORE_004',
   },
 
   // Assessment
