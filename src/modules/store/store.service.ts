@@ -1,10 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { Role, Round, StoreStatus, type Store } from '@prisma/client';
 import type { PaginatedResult } from '@common/types/api-response.type';
-import { NotFoundException, ForbiddenException } from '@common/exceptions/app.exception';
+import {
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@common/exceptions/app.exception';
 import { ERROR_CODES, STORE_TARGET_TOTAL } from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
+import { ProvinceService } from '@modules/province/province.service';
 import { StoreRepository } from './store.repository';
 import type { CreateStoreDto } from './dto/create-store.dto';
 import type { UpdateStoreDto, UpdateStoreStatusDto } from './dto/update-store.dto';
@@ -15,13 +20,17 @@ const PASSED_STATUSES: StoreStatus[] = [StoreStatus.SELECTED, StoreStatus.CONDIT
 
 @Injectable()
 export class StoreService {
-  constructor(private readonly storeRepo: StoreRepository) {}
+  constructor(
+    private readonly storeRepo: StoreRepository,
+    private readonly provinceService: ProvinceService,
+  ) {}
 
-  async findAll(query: QueryStoreDto): Promise<PaginatedResult<Store>> {
+  async findAll(query: QueryStoreDto, user: JwtPayload): Promise<PaginatedResult<Store>> {
     const { skip, take, page, limit } = normalizePagination(query);
+    const ownerId = user.role === Role.ENTREPRENEUR ? user.sub : undefined;
     const [items, total] = await Promise.all([
-      this.storeRepo.findAll(query, skip, take),
-      this.storeRepo.count(query),
+      this.storeRepo.findAll(query, skip, take, ownerId),
+      this.storeRepo.count(query, ownerId),
     ]);
     return buildPaginatedResult(items, total, page, limit);
   }
@@ -45,44 +54,80 @@ export class StoreService {
     };
   }
 
-  async findOne(id: string): Promise<Store> {
+  async findOne(id: string, user: JwtPayload): Promise<Store> {
+    const store = await this.getStoreOrThrow(id);
+    if (user.role === Role.ENTREPRENEUR && store.ownerId !== user.sub) {
+      throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'Access denied');
+    }
+    return store;
+  }
+
+  async create(dto: CreateStoreDto, user: JwtPayload): Promise<Store> {
+    if (user.role !== Role.ADMIN && user.role !== Role.ENTREPRENEUR) {
+      throw new ForbiddenException(
+        ERROR_CODES.PERM.FORBIDDEN,
+        'Only admins or entrepreneurs can create a store',
+      );
+    }
+    await this.assertValidProvince(dto.province);
+    const { ownerId: requestedOwnerId, ...rest } = dto;
+    const ownerId = user.role === Role.ENTREPRENEUR ? user.sub : (requestedOwnerId ?? null);
+    return this.storeRepo.create({
+      ...rest,
+      socialLinks: dto.socialLinks ?? {},
+      ownerId,
+    });
+  }
+
+  async update(id: string, dto: UpdateStoreDto, user: JwtPayload): Promise<Store> {
+    const store = await this.getStoreOrThrow(id);
+    this.assertCanManage(user, store);
+    if (dto.province) await this.assertValidProvince(dto.province);
+    return this.storeRepo.update(id, dto);
+  }
+
+  async updateStatus(id: string, dto: UpdateStoreStatusDto, user: JwtPayload): Promise<Store> {
+    this.assertIsAdmin(user);
+    await this.getStoreOrThrow(id);
+    return this.storeRepo.update(id, { status: dto.status });
+  }
+
+  async remove(id: string, user: JwtPayload): Promise<void> {
+    const store = await this.getStoreOrThrow(id);
+    this.assertCanManage(user, store);
+    await this.storeRepo.remove(id);
+  }
+
+  private async assertValidProvince(province: string): Promise<void> {
+    const isValid = await this.provinceService.isValid(province);
+    if (!isValid) {
+      throw new BadRequestException(
+        ERROR_CODES.STORE.INVALID_PROVINCE,
+        `"${province}" is not a valid province`,
+      );
+    }
+  }
+
+  private async getStoreOrThrow(id: string): Promise<Store> {
     const store = await this.storeRepo.findById(id);
     if (!store) throw new NotFoundException(ERROR_CODES.STORE.NOT_FOUND, 'Store not found');
     return store;
   }
 
-  async create(dto: CreateStoreDto, user: JwtPayload): Promise<Store> {
-    this.assertCanWrite(user);
-    return this.storeRepo.create({
-      ...dto,
-      socialLinks: dto.socialLinks ?? {},
-    });
+  // ADMIN manages every store. ENTREPRENEUR manages only the store they own —
+  // ownership is set at creation time via Store.ownerId and never reassigned here.
+  private assertCanManage(user: JwtPayload, store: Store): void {
+    if (user.role === Role.ADMIN) return;
+    if (user.role === Role.ENTREPRENEUR && store.ownerId === user.sub) return;
+    throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'Access denied');
   }
 
-  async update(id: string, dto: UpdateStoreDto, user: JwtPayload): Promise<Store> {
-    this.assertCanWrite(user);
-    await this.findOne(id);
-    return this.storeRepo.update(id, dto);
-  }
-
-  async updateStatus(id: string, dto: UpdateStoreStatusDto, user: JwtPayload): Promise<Store> {
-    this.assertCanWrite(user);
-    await this.findOne(id);
-    return this.storeRepo.update(id, { status: dto.status });
-  }
-
-  async remove(id: string, user: JwtPayload): Promise<void> {
-    this.assertCanWrite(user);
-    await this.findOne(id);
-    await this.storeRepo.remove(id);
-  }
-
-  // Store CRUD writes are ADMIN-only for this phase — assessor/mentor/entrepreneur
-  // read-only access and assignment/ownership-scoped filtering are tracked as a
-  // later epic once Store gains an `ownerId` and assignment-role distinction.
-  private assertCanWrite(user: JwtPayload): void {
+  private assertIsAdmin(user: JwtPayload): void {
     if (user.role !== Role.ADMIN) {
-      throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'Only admins can manage stores');
+      throw new ForbiddenException(
+        ERROR_CODES.PERM.FORBIDDEN,
+        'Only admins can perform this action',
+      );
     }
   }
 }

@@ -117,6 +117,7 @@ model User {
   pitchScores   PitchingScore[]
   idps          IDP[]
   assignedStores Store[]        @relation("AssignedAssessor")
+  ownedStores    Store[]        @relation("StoreOwner")
 }
 
 model RefreshToken {
@@ -147,15 +148,24 @@ model Store {
   goals        String?     @db.Text
   photos       Json        @default("[]")
   status       StoreStatus @default(REGISTERED)
+  ownerId      String?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
+  owner        User?       @relation("StoreOwner", fields: [ownerId], references: [id])
   assessments  Assessment[]
   pitchScores  PitchingScore[]
   idps         IDP[]
   fieldAudits  FieldAudit[]
   portfolios   Portfolio[]
   assignedUsers User[]      @relation("AssignedAssessor")
+}
+
+// ─── Lookup ───────────────────────────────────────────────────────────────────
+
+model Province {
+  id     Int    @id @default(autoincrement())
+  nameTh String @unique
 }
 
 // ─── Assessment ───────────────────────────────────────────────────────────────

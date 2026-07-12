@@ -90,7 +90,7 @@ export class AssessmentService {
 
   async create(dto: CreateAssessmentDto, user: JwtPayload): Promise<AssessmentResult> {
     this.assertCanWrite(user);
-    await this.storeService.findOne(dto.storeId);
+    await this.storeService.findOne(dto.storeId, user);
 
     const existing = await this.assessmentRepo.findByStoreAndRound(dto.storeId, dto.round);
     if (existing) {

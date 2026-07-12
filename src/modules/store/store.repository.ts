@@ -8,7 +8,7 @@ import type { ProvinceDistribution } from './types/store-stats.type';
 export class StoreRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private buildWhere(query: QueryStoreDto): Prisma.StoreWhereInput {
+  private buildWhere(query: QueryStoreDto, ownerId?: string): Prisma.StoreWhereInput {
     const where: Prisma.StoreWhereInput = {};
     if (query.search) {
       where.OR = [{ name: { contains: query.search } }, { ownerName: { contains: query.search } }];
@@ -16,27 +16,28 @@ export class StoreRepository {
     if (query.province) where.province = query.province;
     if (query.storeType) where.storeType = query.storeType;
     if (query.status) where.status = query.status;
+    if (ownerId) where.ownerId = ownerId;
     return where;
   }
 
-  findAll(query: QueryStoreDto, skip: number, take: number): Promise<Store[]> {
+  findAll(query: QueryStoreDto, skip: number, take: number, ownerId?: string): Promise<Store[]> {
     return this.prisma.store.findMany({
-      where: this.buildWhere(query),
+      where: this.buildWhere(query, ownerId),
       skip,
       take,
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  count(query: QueryStoreDto): Promise<number> {
-    return this.prisma.store.count({ where: this.buildWhere(query) });
+  count(query: QueryStoreDto, ownerId?: string): Promise<number> {
+    return this.prisma.store.count({ where: this.buildWhere(query, ownerId) });
   }
 
   findById(id: string): Promise<Store | null> {
     return this.prisma.store.findUnique({ where: { id } });
   }
 
-  create(data: Prisma.StoreCreateInput): Promise<Store> {
+  create(data: Prisma.StoreUncheckedCreateInput): Promise<Store> {
     return this.prisma.store.create({ data });
   }
 

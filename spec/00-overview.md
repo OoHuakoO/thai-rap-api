@@ -9,7 +9,7 @@
 - Runtime: NestJS (TypeScript)
 - ORM: Prisma + MySQL
 - Auth: JWT (access + refresh token)
-- File upload: Multipart form-data → cloud storage (S3/GCS)
+- File upload: Multipart form-data → local disk (`./uploads`), served as static assets under `/uploads/...`
 
 ---
 
@@ -44,9 +44,7 @@ All responses are wrapped by `TransformInterceptor`:
 ```json
 {
   "success": true,
-  "data": { ... },
-  "message": "OK",
-  "timestamp": "2026-06-05T10:00:00.000Z"
+  "data": { ... }
 }
 ```
 
@@ -56,13 +54,14 @@ Error responses (from `GlobalExceptionFilter`):
 {
   "success": false,
   "error": {
-    "code": "STORE_NOT_FOUND",
+    "code": "STORE_001",
     "message": "Store not found",
-    "statusCode": 404
-  },
-  "timestamp": "2026-06-05T10:00:00.000Z"
+    "details": [ { "field": "...", "message": "..." } ]
+  }
 }
 ```
+
+`details` is only present for validation errors (array of field-level messages). No `statusCode` field inside `error` and no top-level `timestamp` — the HTTP status code is the response's actual status code.
 
 ---
 
@@ -73,10 +72,10 @@ Query parameters for list endpoints:
 | Param | Type | Default | Description |
 |---|---|---|---|
 | `page` | number | 1 | Page number (1-indexed) |
-| `limit` | number | 20 | Items per page (max 100) |
-| `search` | string | — | Full-text search |
-| `sortBy` | string | `createdAt` | Sort field |
-| `sortOrder` | `asc` \| `desc` | `desc` | Sort direction |
+| `limit` | number | 10 | Items per page (max 100) |
+| `search` | string | — | Full-text search (module-specific) |
+
+`sortBy`/`sortOrder` are not implemented — every list query is hardcoded to `orderBy: { createdAt: 'desc' }`.
 
 Paginated response shape:
 
@@ -86,8 +85,8 @@ Paginated response shape:
   "meta": {
     "total": 50,
     "page": 1,
-    "limit": 20,
-    "totalPages": 3
+    "limit": 10,
+    "totalPages": 5
   }
 }
 ```
@@ -157,18 +156,30 @@ Auto-generated when assessment is submitted.
 
 ## Common Error Codes
 
+Codes come from `ERROR_CODES` in `src/common/constants/error-codes.const.ts`. Codes actually thrown today:
+
 | Code | HTTP | Meaning |
 |---|---|---|
-| `UNAUTHORIZED` | 401 | Missing or invalid token |
-| `FORBIDDEN` | 403 | Role not permitted |
-| `NOT_FOUND` | 404 | Resource not found |
-| `CONFLICT` | 409 | Duplicate resource |
-| `VALIDATION_ERROR` | 422 | Invalid request body |
-| `STORE_NOT_FOUND` | 404 | Store does not exist |
-| `ASSESSMENT_NOT_FOUND` | 404 | Assessment does not exist |
-| `ASSESSMENT_ALREADY_EXISTS` | 409 | Duplicate (storeId, round) |
-| `ASSESSMENT_SUBMITTED` | 400 | Cannot modify submitted assessment |
-| `QUESTION_NOT_FOUND` | 404 | Question ID invalid |
-| `SCORE_OUT_OF_RANGE` | 422 | Score must be 0–4 |
-| `FILE_TOO_LARGE` | 413 | Max 10 MB per file |
-| `INVALID_FILE_TYPE` | 422 | Only image/pdf/xlsx allowed |
+| `AUTH_001` | 401 | Invalid login credentials |
+| `AUTH_005` | 403 | Account suspended |
+| `AUTH_006` | 403 | Account pending approval |
+| `AUTH_004` | 401 | Refresh token invalid/expired/revoked |
+| `USER_001` | 404 | User not found |
+| `USER_002` | 409 | Email already exists |
+| `STORE_001` | 404 | Store does not exist |
+| `STORE_003` | 400 | `province` not in the `GET /provinces` lookup table |
+| `ASSESS_001` | 404 | Assessment does not exist |
+| `ASSESS_002` | 409 | Duplicate (storeId, round) |
+| `ASSESS_003` | 400 | Assessment not in a state that allows this action |
+| `ASSESS_004` | 400 | Cannot modify a submitted assessment |
+| `ASSESS_005` | 400 | Not all 50 questions scored before submit |
+| `ASSESS_007` | 404 | Question ID invalid |
+| `PERM_001` | 403 | Role/ownership not permitted |
+| `FILE_001` | 422 | Invalid file type |
+| `FILE_002` | 413 | File exceeds 10 MB |
+| `FILE_003` | 404 | Evidence file not found |
+| `VALID_001` | 400/422 | class-validator DTO validation failed (also the generic fallback for 400/422 without a mapped code) |
+| `DB_001`/`DB_002`/`DB_003`/`DB_004`/`DB_005`/`DB_999` | 409/404/400/400/400/500 | Raw Prisma error passthrough (`P2002`/`P2025`/`P2003`/`P2000`/`P2014`/other) |
+| `SYS_001` | 500 | Unhandled/unexpected error |
+
+`ASSESS_006` (`SCORE_OUT_OF_RANGE`) is defined in the catalog but never thrown — out-of-range scores are rejected by class-validator (`@Min(0)`/`@Max(4)`) and surface as `VALID_001` instead. `AUTH_002`/`AUTH_003` are defined but unused (no code path currently throws them).

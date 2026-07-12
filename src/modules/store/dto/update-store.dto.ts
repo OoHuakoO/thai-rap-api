@@ -1,9 +1,9 @@
-import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { ApiProperty, OmitType, PartialType } from '@nestjs/swagger';
 import { IsEnum } from 'class-validator';
 import { StoreStatus } from '@prisma/client';
 import { CreateStoreDto } from './create-store.dto';
 
-export class UpdateStoreDto extends PartialType(CreateStoreDto) {}
+export class UpdateStoreDto extends PartialType(OmitType(CreateStoreDto, ['ownerId'] as const)) {}
 
 export class UpdateStoreStatusDto {
   @ApiProperty({ enum: StoreStatus, example: StoreStatus.T0_COMPLETED })

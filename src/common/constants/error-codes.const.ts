@@ -20,6 +20,7 @@ export const ERROR_CODES = {
   STORE: {
     NOT_FOUND: 'STORE_001',
     DUPLICATE: 'STORE_002',
+    INVALID_PROVINCE: 'STORE_003',
   },
 
   // Assessment

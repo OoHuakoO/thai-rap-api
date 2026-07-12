@@ -14,9 +14,11 @@ export class StoreController {
   constructor(private readonly storeService: StoreService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List stores (paginated, filterable)' })
-  findAll(@Query() query: QueryStoreDto) {
-    return this.storeService.findAll(query);
+  @ApiOperation({
+    summary: 'List stores (paginated, filterable; ENTREPRENEUR only sees their own)',
+  })
+  findAll(@Query() query: QueryStoreDto, @CurrentUser() user: JwtPayload) {
+    return this.storeService.findAll(query, user);
   }
 
   @Get('stats')
@@ -27,18 +29,18 @@ export class StoreController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a store by id' })
-  findOne(@Param('id') id: string) {
-    return this.storeService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.storeService.findOne(id, user);
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create a store (ADMIN only)' })
+  @ApiOperation({ summary: 'Create a store (ADMIN, or ENTREPRENEUR for their own store)' })
   create(@Body() dto: CreateStoreDto, @CurrentUser() user: JwtPayload) {
     return this.storeService.create(dto, user);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a store (ADMIN only)' })
+  @ApiOperation({ summary: 'Update a store (ADMIN, or ENTREPRENEUR for their own store)' })
   update(@Param('id') id: string, @Body() dto: UpdateStoreDto, @CurrentUser() user: JwtPayload) {
     return this.storeService.update(id, dto, user);
   }

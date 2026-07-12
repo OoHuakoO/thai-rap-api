@@ -56,4 +56,12 @@ export class CreateStoreDto {
   @IsOptional()
   @IsString()
   goals?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Assign this store to an entrepreneur user id (ADMIN only). Ignored when the caller is an ENTREPRENEUR — the store is always owned by the caller in that case.',
+  })
+  @IsOptional()
+  @IsString()
+  ownerId?: string;
 }

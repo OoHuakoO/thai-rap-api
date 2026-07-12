@@ -14,6 +14,7 @@ import {
 } from './config';
 import { PrismaModule } from './database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { ProvinceModule } from './modules/province/province.module';
 import { StoreModule } from './modules/store/store.module';
 import { AssessmentModule } from './modules/assessment/assessment.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
@@ -79,6 +80,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 
     // ── Feature Modules ──────────────────────────────────────────────────────
     AuthModule,
+    ProvinceModule,
     StoreModule,
     AssessmentModule,
   ],

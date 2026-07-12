@@ -9,9 +9,9 @@ Covers: Dimensions, Questions, Assessments, Scores, Evidences
 ## Dimensions & Questions (Seed / Read-only)
 
 ### GET /dimensions
-List all 8 dimensions with questions.
+List all 8 dimensions. Raw `Dimension` rows, no `questions` relation included.
 
-**Access:** All roles
+**Access:** All roles (any valid access token)
 
 **Response 200**
 ```json
@@ -21,32 +21,25 @@ List all 8 dimensions with questions.
     "name": "คุณภาพอาหารและนวัตกรรมเมนู",
     "nameEn": "Food Quality & Menu Innovation",
     "weight": 12,
-    "questionCount": 7,
-    "questions": [
-      {
-        "id": 1,
-        "questionNo": 1,
-        "questionText": "ร้านมีเมนูหลักที่ขายดีและลูกค้าจดจำได้ชัดเจน",
-        "maxScore": 4
-      }
-    ]
+    "questionCount": 7
   }
 ]
 ```
+No `questions` array — use `GET /dimensions/:id/questions` to fetch a dimension's questions separately.
 
 ---
 
 ### GET /dimensions/:id/questions
-List questions for a single dimension.
+List questions for a single dimension, ordered by `questionNo`.
 
 **Access:** All roles
 
-**Response 200** — Array of question objects
+**Response 200** — Array of question objects, same flat shape as `GET /questions` below (no nested `dimension` object).
 
 ---
 
 ### GET /questions
-List all 50 questions.
+List all 50 questions, ordered by `questionNo`. Raw `Question` rows, no `dimension` relation included.
 
 **Access:** All roles
 
@@ -63,20 +56,20 @@ List all 50 questions.
     "dimensionId": 1,
     "questionNo": 1,
     "questionText": "ร้านมีเมนูหลักที่ขายดีและลูกค้าจดจำได้ชัดเจน",
-    "maxScore": 4,
-    "dimension": { "id": 1, "name": "คุณภาพอาหารและนวัตกรรมเมนู", "weight": 12 }
+    "maxScore": 4
   }
 ]
 ```
+No nested `dimension` object — join with `GET /dimensions` client-side using `dimensionId` if needed.
 
 ---
 
 ## Assessments
 
 ### GET /assessments
-List assessments with filtering.
+List assessments with filtering. Raw `Assessment` rows (no `store`/`assessor` join, no computed `zone`).
 
-**Access:** ADMIN, ME_TEAM (all); ASSESSOR (assigned stores); MENTOR (assigned stores); ENTREPRENEUR (own store)
+**Access:** Any valid access token — there is no role or ownership scoping on this endpoint; every role sees every assessment.
 
 **Query Params**
 | Param | Type | Description |
@@ -84,7 +77,8 @@ List assessments with filtering.
 | `storeId` | string | Filter by store |
 | `round` | Round enum | Filter by round (T0–T4) |
 | `status` | AssessmentStatus enum | Filter by status |
-| `assessorId` | string | Filter by assessor (ADMIN only) |
+
+`assessorId` filtering does not exist on `QueryAssessmentDto`.
 
 **Response 200**
 ```json
@@ -93,66 +87,55 @@ List assessments with filtering.
     {
       "id": "classess1",
       "storeId": "clstore1",
-      "storeName": "ร้านอาหารสุขใจ",
       "round": "T0",
       "assessorId": "cluser1",
-      "assessorName": "Jane Assessor",
       "status": "SUBMITTED",
       "totalScore": 48.2,
-      "zone": "Survival Zone",
-      "submittedAt": "2026-02-01T00:00:00.000Z",
-      "createdAt": "2026-01-20T00:00:00.000Z"
+      "createdAt": "2026-01-20T00:00:00.000Z",
+      "updatedAt": "2026-02-01T00:00:00.000Z",
+      "submittedAt": "2026-02-01T00:00:00.000Z"
     }
   ],
-  "meta": { "total": 5, "page": 1, "limit": 20, "totalPages": 1 }
+  "meta": { "total": 5, "page": 1, "limit": 10, "totalPages": 1 }
 }
 ```
+`storeName`, `assessorName`, and `zone` shown in earlier drafts are not present — the list query has no `include`/`select` beyond the raw `Assessment` columns.
 
 ---
 
 ### GET /assessments/:id
-Get full assessment detail including all 50 scores and red flags. The `scores` array always contains all 50 questions merged with any existing scores — unscored questions come back with `rawScore: null` rather than being omitted.
+Get full assessment detail: all 50 questions merged with any existing scores (unscored questions come back with `rawScore: null` rather than being omitted), plus red flags. This is the exact same response shape returned by `POST /assessments`, `POST /assessments/:id/submit`, and `PUT .../scores/:questionId`'s parent resource.
 
 **Response 200**
 ```json
 {
   "id": "classess1",
   "storeId": "clstore1",
-  "store": { "id": "clstore1", "name": "ร้านอาหารสุขใจ", "province": "ชลบุรี" },
   "round": "T0",
   "assessorId": "cluser1",
-  "assessor": { "id": "cluser1", "name": "Jane Assessor" },
   "status": "SUBMITTED",
   "totalScore": 48.2,
   "zone": "Survival Zone",
-  "dimensionScores": [
+  "createdAt": "2026-01-20T00:00:00.000Z",
+  "updatedAt": "2026-02-01T00:00:00.000Z",
+  "submittedAt": "2026-02-01T00:00:00.000Z",
+  "questions": [
     {
-      "dimensionId": 1,
-      "dimensionName": "คุณภาพอาหารและนวัตกรรมเมนู",
-      "weight": 12,
-      "rawScore": 14,
-      "maxScore": 28,
-      "percentScore": 50.0,
-      "weightedScore": 6.0
-    }
-  ],
-  "scores": [
-    {
-      "id": "clscore1",
       "questionId": 1,
       "questionNo": 1,
+      "dimensionId": 1,
       "questionText": "ร้านมีเมนูหลักที่ขายดี...",
+      "maxScore": 4,
       "rawScore": 3,
       "note": "มีเมนูปลาสดขาดไม่ได้ แต่ไม่มีบอร์ดเมนูที่ชัดเจน",
       "suggestion": "แนะนำทำเมนูดิจิทัล",
-      "status": "SCORED",
-      "evidences": [
+      "evidence": [
         {
           "id": "clevid1",
           "filename": "menu_photo.jpg",
           "fileType": "image/jpeg",
           "fileSize": 204800,
-          "url": "https://cdn.example.com/evidences/clevid1.jpg",
+          "url": "/uploads/evidence/classess1/a1b2c3d4.jpg",
           "uploadedAt": "2026-02-01T09:00:00.000Z"
         }
       ]
@@ -161,24 +144,33 @@ Get full assessment detail including all 50 scores and red flags. The `scores` a
   "redFlags": [
     {
       "id": "clredflag1",
+      "assessmentId": "classess1",
       "type": "FINANCIAL",
       "severity": "CRITICAL",
       "triggerQuestions": [28, 29, 30],
-      "recommendation": "ต้องจัดทำ Costing Sheet และแยกบัญชีร้านก่อนเข้า Incubation",
+      "recommendation": null,
       "resolved": false
     }
-  ],
-  "submittedAt": "2026-02-01T10:00:00.000Z",
-  "createdAt": "2026-01-20T00:00:00.000Z"
+  ]
 }
 ```
+Key differences from earlier drafts:
+- No nested `store`/`assessor` objects — only the flat `storeId`/`assessorId`.
+- The per-question array is named **`questions`** (not `scores`), and it always contains all 50 questions (unscored ones have `rawScore: null`, `note: null`, `suggestion: null`, `evidence: []`). There is no per-question `status`/`id` (score row id) field.
+- Evidence is keyed **`evidence`** (singular), not `evidences`.
+- There is no top-level `dimensionScores` array anywhere in this response.
+- `recommendation` on a red flag is **always `null`** — `detectRedFlags` (`src/modules/assessment/assessment-scoring.util.ts`) never sets it and nothing else populates the column, even though it exists on the `RedFlag` model.
+- `zone` is computed on the fly from `totalScore` via `getZone()`; it is `null` until the assessment has a `totalScore` (i.e. before first submit).
+
+**Errors**
+- `404 ASSESS_001` — Assessment not found
 
 ---
 
 ### POST /assessments
-Create a new assessment (one per store per round).
+Create a new draft assessment (one per store per round).
 
-**Access:** ADMIN, ASSESSOR (assigned stores only)
+**Access:** ADMIN, ASSESSOR — any user with either role can create an assessment for any store; there is no check that an `ASSESSOR` is assigned to the target store (no assignment relation is enforced anywhere in this module).
 
 **Body**
 ```json
@@ -188,105 +180,94 @@ Create a new assessment (one per store per round).
 }
 ```
 
-**Response 201**
-```json
-{
-  "id": "classess1",
-  "storeId": "clstore1",
-  "round": "T0",
-  "assessorId": "cluser1",
-  "status": "DRAFT",
-  "createdAt": "2026-01-20T00:00:00.000Z"
-}
-```
+**Response 201** — Full assessment detail, same shape as `GET /assessments/:id` (status `DRAFT`, `totalScore: null`, `zone: null`, all 50 `questions` unscored, `redFlags: []`).
 
 **Errors**
-- `409 ASSESSMENT_ALREADY_EXISTS` — (storeId, round) already exists
-- `403 FORBIDDEN` — Assessor not assigned to this store
+- `403 PERM_001` — Not ADMIN/ASSESSOR
+- `404 STORE_001` — `storeId` does not exist
+- `409 ASSESS_002` — (storeId, round) already exists
 
 ---
 
 ### POST /assessments/:id/submit
-Submit assessment (locks scores, triggers score calculation + red flag detection).
+Submit assessment (locks scores, computes dimension/total score, and auto-generates red flags — all inside one transaction).
 
-**Access:** ADMIN, ASSESSOR (owner of assessment)
+**Access:** ADMIN, ASSESSOR (role-only check — not restricted to the assessment's own `assessorId`)
 
-Validation: All 50 questions must have a score before submission.
+Validation: all 50 questions must have a non-null `rawScore`.
 
-**Response 200**
-```json
-{
-  "id": "classess1",
-  "status": "SUBMITTED",
-  "totalScore": 48.2,
-  "zone": "Survival Zone",
-  "dimensionScores": [...],
-  "redFlagsGenerated": [
-    { "type": "FINANCIAL", "severity": "CRITICAL" },
-    { "type": "MARKET", "severity": "WARNING" }
-  ],
-  "submittedAt": "2026-02-01T10:00:00.000Z"
-}
-```
+**Response 200** — Full assessment detail, same shape as `GET /assessments/:id` (status `SUBMITTED`, `totalScore`/`zone` populated, `redFlags` populated from the just-created rows). There is no separate `redFlagsGenerated` field or `dimensionScores` array in the response — dimension-level scores are computed during submit but not returned; only the final `totalScore` persists.
 
 **Errors**
-- `400` — Not all questions scored
-- `400 ASSESSMENT_SUBMITTED` — Already submitted
+- `400 ASSESS_005` — Not all 50 questions scored
+- `400 ASSESS_004` — Already submitted
+- `404 ASSESS_001` — Assessment not found
 
 ---
 
 ### DELETE /assessments/:id
 Delete a DRAFT assessment.
 
-**Access:** ADMIN
+**Access:** ADMIN, ASSESSOR
+
+**Response 200**
+```json
+{ "success": true, "data": null }
+```
 
 **Errors**
-- `400` — Cannot delete submitted assessment
+- `400 ASSESS_003` — Assessment is not in DRAFT status
+- `404 ASSESS_001` — Assessment not found
 
 ---
 
 ## Scores
 
 ### PUT /assessments/:id/scores/:questionId
-Set or update a single question score.
+Set or update a single question score (upsert).
 
-**Access:** ADMIN, ASSESSOR (owner of assessment)
+**Access:** ADMIN, ASSESSOR
 
-Validation: Assessment must not be SUBMITTED.
+Validation: assessment must not be `SUBMITTED`.
 
 **Body**
 ```json
 {
   "rawScore": 3,
   "note": "มีระบบบ้าง แต่ไม่ครบ",
-  "suggestion": "แนะนำทำ Costing Sheet",
-  "status": "SCORED"
+  "suggestion": "แนะนำทำ Costing Sheet"
 }
 ```
+There is no `status` field in the request body — `UpdateScoreDto` doesn't define one, and sending one is rejected (global `forbidNonWhitelisted`). The score's status is always force-set to `SCORED` server-side on every upsert.
 
 **Response 200**
 ```json
 {
-  "id": "clscore1",
-  "assessmentId": "classess1",
   "questionId": 1,
+  "questionNo": 1,
+  "dimensionId": 1,
+  "questionText": "ร้านมีเมนูหลักที่ขายดีและลูกค้าจดจำได้ชัดเจน",
+  "maxScore": 4,
   "rawScore": 3,
   "note": "มีระบบบ้าง แต่ไม่ครบ",
   "suggestion": "แนะนำทำ Costing Sheet",
-  "status": "SCORED"
+  "evidence": []
 }
 ```
+This is a single question object in the same shape as one entry of `GET /assessments/:id`'s `questions` array — not `{ id, assessmentId, ... }`.
 
 **Errors**
-- `422 SCORE_OUT_OF_RANGE` — Score must be 0–4
-- `400 ASSESSMENT_SUBMITTED` — Cannot edit submitted assessment
+- `422 VALID_001` — `rawScore` outside 0–4 (rejected by class-validator before reaching the service; the catalog defines `ASSESS_006`/`SCORE_OUT_OF_RANGE` for this but it is never actually thrown)
+- `400 ASSESS_004` — Cannot edit a submitted assessment
+- `404 ASSESS_007` — Question not found
+- `404 ASSESS_001` — Assessment not found
 
 ---
 
 ### POST /assessments/:id/scores/bulk
 Bulk upsert scores for multiple questions at once.
 
-**Access:** ADMIN, ASSESSOR (owner of assessment)
+**Access:** ADMIN, ASSESSOR
 
 **Body**
 ```json
@@ -299,154 +280,86 @@ Bulk upsert scores for multiple questions at once.
 }
 ```
 
-**Response 200**
+**Response 200** — Same shape as `GET /assessments/:id/scores/progress` below, **not** `{ updated, scores }`:
 ```json
 {
-  "updated": 3,
-  "scores": [...]
+  "scored": 3,
+  "total": 50
 }
 ```
+
+**Errors**
+- `400 ASSESS_004` — Assessment already submitted
+- `404 ASSESS_007` — A `questionId` in the batch doesn't exist (validated against all 50 questions before any upsert runs)
+- `404 ASSESS_001` — Assessment not found
 
 ---
 
 ### GET /assessments/:id/scores/progress
-Get scoring progress (how many of 50 questions have been scored).
+Get scoring progress.
 
 **Response 200**
 ```json
 {
-  "total": 50,
   "scored": 38,
-  "pending": 12,
-  "byDimension": [
-    { "dimensionId": 1, "dimensionName": "...", "total": 7, "scored": 7 },
-    { "dimensionId": 2, "dimensionName": "...", "total": 7, "scored": 5 }
-  ]
+  "total": 50
 }
 ```
+There is no `pending` field (compute as `total - scored` client-side) and no `byDimension` breakdown — the endpoint only counts scores where `rawScore` is not null, globally.
 
 ---
 
 ## Evidences
 
-### POST /assessments/:id/scores/:questionId/evidences
-Upload evidence file for a specific question score.
+### POST /assessments/:id/scores/:questionId/evidence
+Upload an evidence file for a question that already has a score. Path is singular `evidence`, not nested `scores/:questionId/evidences` as in earlier drafts.
 
-**Access:** ADMIN, ASSESSOR (owner), ENTREPRENEUR (own store)
+**Access:** ADMIN, ASSESSOR — entrepreneurs cannot upload evidence (write access to the assessment module is ADMIN/ASSESSOR-only, see Access note on `POST /assessments`).
 
 **Content-Type:** `multipart/form-data`
 
 **Body**
 | Field | Type | Required |
 |---|---|---|
-| `file` | image/pdf/xlsx (max 10MB) | Yes |
-| `description` | string | No |
+| `file` | image (jpeg/png/webp), pdf, or xlsx, max 10MB | Yes |
+
+There is no `description` field — the `Evidence` model has no such column and the controller doesn't read one even if sent.
 
 **Response 201**
 ```json
 {
   "id": "clevid1",
-  "scoreId": "clscore1",
   "filename": "costing_sheet.xlsx",
   "fileType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "fileSize": 51200,
-  "url": "https://cdn.example.com/evidences/clevid1.xlsx",
+  "url": "/uploads/evidence/classess1/f47ac10b.xlsx",
   "uploadedAt": "2026-02-01T09:00:00.000Z"
 }
 ```
+`url` is a relative path served from local disk (`/uploads/...`), not a `https://cdn.example.com/...` URL. There is no `scoreId` field in the response.
 
 **Errors**
-- `413 FILE_TOO_LARGE` — Max 10 MB
-- `422 INVALID_FILE_TYPE` — Only image/pdf/xlsx
+- `400 ASSESS_003` — The question hasn't been scored yet (evidence requires an existing `Score` row for that question)
+- `413 FILE_002` — File exceeds 10 MB
+- `422 FILE_001` — Type not in jpeg/png/webp/pdf/xlsx
 
 ---
 
-### DELETE /assessments/:id/scores/:questionId/evidences/:evidenceId
-Remove an evidence file.
+### DELETE /assessments/:id/evidence/:evidenceId
+Remove an evidence file (deletes the DB row and the file on disk). Path is flat — **not** nested under `scores/:questionId` as in earlier drafts.
 
-**Access:** ADMIN, ASSESSOR (owner)
+**Access:** ADMIN, ASSESSOR
 
 **Response 200**
 ```json
-{ "message": "Evidence removed" }
+{ "success": true, "data": null }
 ```
+
+**Errors**
+- `404 FILE_003` — Evidence not found (or doesn't belong to this assessment)
 
 ---
 
 ## Score Analysis
 
-### GET /assessments/:id/analysis
-Get computed analysis: dimension scores, zone, improvement from previous round.
-
-**Response 200**
-```json
-{
-  "assessmentId": "classess1",
-  "storeId": "clstore1",
-  "round": "T1",
-  "totalScore": 62.5,
-  "zone": "Improve Zone",
-  "dimensionScores": [
-    {
-      "dimensionId": 1,
-      "dimensionName": "คุณภาพอาหารและนวัตกรรมเมนู",
-      "weight": 12,
-      "percentScore": 64.3,
-      "weightedScore": 7.7
-    }
-  ],
-  "comparison": {
-    "previousRound": "T0",
-    "previousScore": 48.2,
-    "improvement": 14.3,
-    "improvementRate": 29.7,
-    "dimensionComparison": [
-      {
-        "dimensionId": 1,
-        "dimensionName": "คุณภาพอาหารและนวัตกรรมเมนู",
-        "T0": 50.0,
-        "T1": 64.3,
-        "delta": 14.3
-      }
-    ]
-  },
-  "topStrengths": [
-    { "dimensionId": 8, "dimensionName": "ความพร้อมเติบโต", "percentScore": 88.0 }
-  ],
-  "topWeaknesses": [
-    { "dimensionId": 5, "dimensionName": "การเงิน", "percentScore": 42.0 }
-  ],
-  "redFlags": [...]
-}
-```
-
----
-
-### GET /stores/:storeId/assessments/comparison
-Compare scores across all completed rounds for a store.
-
-**Response 200**
-```json
-{
-  "storeId": "clstore1",
-  "storeName": "ร้านอาหารสุขใจ",
-  "rounds": {
-    "T0": { "totalScore": 48.2, "zone": "Survival Zone", "submittedAt": "2026-02-01T00:00:00.000Z" },
-    "T1": { "totalScore": 62.5, "zone": "Improve Zone", "submittedAt": "2026-03-15T00:00:00.000Z" },
-    "T2": null,
-    "T3": null,
-    "T4": null
-  },
-  "dimensionTrend": [
-    {
-      "dimensionId": 1,
-      "dimensionName": "คุณภาพอาหารและนวัตกรรมเมนู",
-      "T0": 50.0,
-      "T1": 64.3,
-      "T2": null,
-      "T3": null,
-      "T4": null
-    }
-  ]
-}
-```
+`GET /assessments/:id/analysis` and `GET /stores/:storeId/assessments/comparison` described in earlier drafts are **not implemented** — no such routes exist in `AssessmentController` or `StoreController`. Round-over-round comparison and per-dimension trend data must currently be computed client-side by fetching individual assessments.

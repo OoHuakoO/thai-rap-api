@@ -3,7 +3,7 @@
 ## Endpoints
 
 ### POST /auth/login [PUBLIC]
-Login with email + password. Returns access token and refresh token.
+Login with email + password. Returns an access token in the body and sets the refresh token as an httpOnly cookie (`refreshToken`) — it is never returned in the JSON body.
 
 **Body**
 ```json
@@ -25,15 +25,15 @@ Login with email + password. Returns access token and refresh token.
   },
   "tokens": {
     "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-    "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
     "expiresIn": 900
   }
 }
 ```
 
 **Errors**
-- `401` — Invalid credentials
-- `403` — Account suspended / pending
+- `401 AUTH_001` — Invalid credentials
+- `403 AUTH_005` — Account suspended
+- `403 AUTH_006` — Account pending activation
 
 ---
 
@@ -50,50 +50,45 @@ Register new user. No `phone` field. `role` accepts any `Role` **except `ADMIN`*
 }
 ```
 
-**Response 201** — same shape as `POST /auth/login` (`{ user, tokens }`); registering logs the user in immediately.
+**Response 201** — same shape as `POST /auth/login` (`{ user, tokens: { accessToken, expiresIn } }`, refresh token set as httpOnly cookie); registering logs the user in immediately.
 
 **Errors**
-- `409 CONFLICT` — Email already exists
-- `422` — `role` is `ADMIN`, or other validation failure
+- `409 USER_002` — Email already exists
+- `422 VALID_001` — `role` is `ADMIN`, or other validation failure
 
 ---
 
 ### POST /auth/refresh [PUBLIC]
-Exchange refresh token for new access token. The refresh token is validated via a dedicated `JwtRefreshStrategy` reading it from the **body**, not the `Authorization` header.
+Exchange refresh token for a new access token. The refresh token is validated via a dedicated `JwtRefreshStrategy` (Passport strategy name `jwt-refresh`) that reads it only from the **httpOnly cookie** (`refreshToken`) — there is no request body, and it is not read from the `Authorization` header.
 
-**Body**
-```json
-{
-  "refreshToken": "eyJhbGciOiJIUzI1NiIs..."
-}
-```
+**Body** — none
 
 **Response 200**
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
   "expiresIn": 900
 }
 ```
+A new refresh token is issued and set as the `refreshToken` cookie; it is not returned in the body.
 
 **Errors**
-- `401` — Refresh token invalid or expired
+- `401 AUTH_004` — Refresh token missing, invalid, expired, or revoked
 
 ---
 
 ### POST /auth/logout
-Revoke current refresh token. Requires valid access token.
+Revoke current refresh token and clear the `refreshToken` cookie. Requires valid access token (`Authorization: Bearer`).
 
 **Response 200**
 ```json
-{ "message": "Logged out successfully" }
+{ "success": true, "data": null }
 ```
 
 ---
 
 ### GET /auth/me
-Returns the currently authenticated user.
+Returns the currently authenticated user. Requires valid access token.
 
 **Response 200**
 ```json
@@ -103,31 +98,13 @@ Returns the currently authenticated user.
   "email": "admin@example.com",
   "role": "ADMIN",
   "status": "ACTIVE",
-  "phone": "0812345678",
-  "department": "PMO",
-  "avatar": "https://cdn.example.com/avatars/clxxxxx.jpg",
-  "provinces": ["ชลบุรี", "ระยอง"],
-  "lastLogin": "2026-06-05T09:00:00.000Z"
+  "lastLogin": "2026-06-05T09:00:00.000Z",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-06-05T09:00:00.000Z"
 }
 ```
+The `User` model has no `phone`, `department`, `avatar`, or `provinces` fields — they do not exist anywhere in the schema and can never appear in this response.
 
 ---
 
-### PATCH /auth/me/password
-Change own password.
-
-**Body**
-```json
-{
-  "currentPassword": "oldSecret",
-  "newPassword": "newSecret123"
-}
-```
-
-**Response 200**
-```json
-{ "message": "Password changed successfully" }
-```
-
-**Errors**
-- `400` — Current password incorrect
+`PATCH /auth/me/password` (change own password) is **not implemented** — no route, service method, or DTO exists.
