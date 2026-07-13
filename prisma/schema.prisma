@@ -75,30 +75,6 @@ enum Severity {
   CRITICAL
 }
 
-enum Phase {
-  D7
-  D30
-  D90
-}
-
-enum PlanStatus {
-  PENDING
-  IN_PROGRESS
-  DONE
-}
-
-enum PortfolioStatus {
-  PENDING
-  COMPLETE
-}
-
-enum ReportStatus {
-  PENDING
-  GENERATING
-  DONE
-  FAILED
-}
-
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 model User {
@@ -114,10 +90,8 @@ model User {
 
   refreshToken   RefreshToken?
   assessments    Assessment[]
-  pitchScores    PitchingScore[]
-  idps           IDP[]
-  assignedStores Store[]         @relation("AssignedAssessor")
-  ownedStores    Store[]         @relation("StoreOwner")
+  assignedStores Store[]       @relation("AssignedAssessor")
+  ownedStores    Store[]       @relation("StoreOwner")
 }
 
 model RefreshToken {
@@ -157,10 +131,6 @@ model Store {
 
   owner         User?           @relation("StoreOwner", fields: [ownerId], references: [id])
   assessments   Assessment[]
-  pitchScores   PitchingScore[]
-  idps          IDP[]
-  fieldAudits   FieldAudit[]
-  portfolios    Portfolio[]
   documents     StoreDocument[]
   assignedUsers User[]          @relation("AssignedAssessor")
 }
@@ -263,115 +233,4 @@ model RedFlag {
   resolved         Boolean     @default(false)
 
   assessment Assessment @relation(fields: [assessmentId], references: [id])
-}
-
-// ─── Pitching ─────────────────────────────────────────────────────────────────
-
-model PitchingScore {
-  id                     String   @id @default(cuid())
-  storeId                String
-  judgeId                String
-  round                  String
-  businessClarity        Int
-  productAppeal          Int
-  marketPlan             Int
-  financialUnderstanding Int
-  ownerReadiness         Int
-  total                  Int
-  comment                String?  @db.Text
-  strengths              Json     @default("[]")
-  concerns               Json     @default("[]")
-  createdAt              DateTime @default(now())
-
-  store Store @relation(fields: [storeId], references: [id])
-  judge User  @relation(fields: [judgeId], references: [id])
-
-  @@unique([storeId, judgeId, round])
-}
-
-// ─── IDP / Mentoring ──────────────────────────────────────────────────────────
-
-model IDP {
-  id        String   @id @default(cuid())
-  storeId   String
-  mentorId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  store  Store          @relation(fields: [storeId], references: [id])
-  mentor User           @relation(fields: [mentorId], references: [id])
-  plans  IDPPlan[]
-  logs   MentoringLog[]
-
-  @@unique([storeId, mentorId])
-}
-
-model IDPPlan {
-  id          String     @id @default(cuid())
-  idpId       String
-  phase       Phase
-  issue       String     @db.Text
-  actionPlan  String     @db.Text
-  responsible String
-  dueDate     DateTime
-  progress    Int        @default(0)
-  status      PlanStatus @default(PENDING)
-
-  idp IDP @relation(fields: [idpId], references: [id])
-}
-
-model MentoringLog {
-  id        String   @id @default(cuid())
-  idpId     String
-  date      DateTime
-  note      String   @db.Text
-  outcome   String?  @db.Text
-  createdAt DateTime @default(now())
-
-  idp IDP @relation(fields: [idpId], references: [id])
-}
-
-// ─── Field Audit / Portfolio ──────────────────────────────────────────────────
-
-model FieldAudit {
-  id        String   @id @default(cuid())
-  storeId   String
-  round     Round
-  auditorId String
-  items     Json     @default("[]")
-  createdAt DateTime @default(now())
-
-  store Store @relation(fields: [storeId], references: [id])
-}
-
-model Portfolio {
-  id          String          @id @default(cuid())
-  storeId     String
-  dimensionId Int
-  summary     String?         @db.Text
-  results     String?         @db.Text
-  files       Json            @default("[]")
-  mentorNote  String?         @db.Text
-  status      PortfolioStatus @default(PENDING)
-  updatedAt   DateTime        @updatedAt
-
-  store Store @relation(fields: [storeId], references: [id])
-
-  @@unique([storeId, dimensionId])
-}
-
-// ─── Reports ──────────────────────────────────────────────────────────────────
-
-model Report {
-  id        String       @id @default(cuid())
-  name      String
-  type      String
-  format    String
-  province  String?
-  dateFrom  DateTime?
-  dateTo    DateTime?
-  status    ReportStatus @default(PENDING)
-  fileUrl   String?
-  createdBy String
-  createdAt DateTime     @default(now())
 }

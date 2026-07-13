@@ -91,16 +91,8 @@ async function bootstrap() {
         'bearerAuth',
       )
       .addTag('Auth', 'Authentication — login, logout, token refresh')
-      .addTag('Users', 'User management and permissions')
       .addTag('Stores', 'Restaurant store profiles')
       .addTag('Assessment', 'Store assessments (T0–T4)')
-      .addTag('Analytics', 'Performance analytics')
-      .addTag('Pitching', 'Pitching competition scoring')
-      .addTag('IDP', 'Individual Development Plans')
-      .addTag('Dashboard', 'Project-level KPIs and feeds')
-      .addTag('Reports', 'Report generation and export')
-      .addTag('Upload', 'S3 presigned URL flow')
-      .addTag('Ranking', 'Store rankings')
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
