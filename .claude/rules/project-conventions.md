@@ -250,28 +250,36 @@ return { items, meta: buildPaginationMeta(total, query.page, query.limit) };
 ---
 
 ## File Upload
-- Max size: 10 MB per file.
-- Allowed types: `image/jpeg`, `image/png`, `image/webp`, `application/pdf`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
+- Max size and allowed-type regexes live in `src/common/constants/file-upload.const.ts` — never inline a byte count or MIME regex in a controller. See [constants-organization.md](constants-organization.md).
+- Current limit: `FILE_MAX_SIZE_BYTES` (10 MB). Current type sets: `PHOTO_MIME_REGEX`, `STORE_DOCUMENT_MIME_REGEX`, `ASSESSMENT_EVIDENCE_MIME_REGEX`.
 - Use `FileInterceptor` / `FilesInterceptor` from `@nestjs/platform-express`.
 - Validate with `FileTypeValidator` + `MaxFileSizeValidator` in `ParseFilePipe`.
 - Store in cloud (S3/GCS); never store binary in DB. Save URL to DB.
 - Throw `BadRequestException('FILE_001', ...)` for invalid type or `('FILE_002', ...)` for too large.
 
 ```ts
+import { FILE_MAX_SIZE_BYTES, FILE_MAX_SIZE_MB, PHOTO_MIME_REGEX, ERROR_CODES } from '@constants/index';
+
 @Post('evidence')
 @UseInterceptors(FileInterceptor('file'))
 async uploadEvidence(
   @UploadedFile(
     new ParseFilePipe({
       validators: [
-        new MaxFileSizeValidator({ maxSize: 10 * 1024 * 1024 }),
-        new FileTypeValidator({ fileType: /image\/(jpeg|png|webp)|application\/pdf/ }),
+        new MaxFileSizeValidator({ maxSize: FILE_MAX_SIZE_BYTES }),
+        new FileTypeValidator({ fileType: PHOTO_MIME_REGEX }),
       ],
+      exceptionFactory: (error) =>
+        error.toLowerCase().includes('size')
+          ? new BadRequestException(ERROR_CODES.FILE.TOO_LARGE, `File exceeds the ${FILE_MAX_SIZE_MB} MB limit`)
+          : new BadRequestException(ERROR_CODES.FILE.INVALID_TYPE, 'File type is not allowed'),
     }),
   )
   file: Express.Multer.File,
 ) { ... }
 ```
+
+If a new upload flow needs a genuinely different size or MIME set, add a new named constant to `file-upload.const.ts` first — don't type a new literal inline.
 
 ---
 

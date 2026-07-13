@@ -19,16 +19,17 @@ import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nes
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { BadRequestException } from '@common/exceptions/app.exception';
-import { ERROR_CODES } from '@constants/index';
+import {
+  ERROR_CODES,
+  FILE_MAX_SIZE_BYTES,
+  FILE_MAX_SIZE_MB,
+  ASSESSMENT_EVIDENCE_MIME_REGEX,
+} from '@constants/index';
 import { AssessmentService } from './assessment.service';
 import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import { UpdateScoreDto } from './dto/update-score.dto';
 import { BulkScoreDto } from './dto/bulk-score.dto';
 import { QueryAssessmentDto } from './dto/query-assessment.dto';
-
-const MAX_EVIDENCE_FILE_SIZE = 10 * 1024 * 1024;
-const EVIDENCE_MIME_REGEX =
-  /^(image\/(jpeg|png|webp)|application\/(pdf|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet))$/;
 
 @ApiTags('Assessment')
 @ApiBearerAuth()
@@ -92,12 +93,15 @@ export class AssessmentController {
     @UploadedFile(
       new ParseFilePipe({
         validators: [
-          new MaxFileSizeValidator({ maxSize: MAX_EVIDENCE_FILE_SIZE }),
-          new FileTypeValidator({ fileType: EVIDENCE_MIME_REGEX }),
+          new MaxFileSizeValidator({ maxSize: FILE_MAX_SIZE_BYTES }),
+          new FileTypeValidator({ fileType: ASSESSMENT_EVIDENCE_MIME_REGEX }),
         ],
         exceptionFactory: (error: string) =>
           error.toLowerCase().includes('size')
-            ? new BadRequestException(ERROR_CODES.FILE.TOO_LARGE, 'File exceeds the 10 MB limit')
+            ? new BadRequestException(
+                ERROR_CODES.FILE.TOO_LARGE,
+                `File exceeds the ${FILE_MAX_SIZE_MB} MB limit`,
+              )
             : new BadRequestException(
                 ERROR_CODES.FILE.INVALID_TYPE,
                 'Only jpeg, png, webp, pdf, or xlsx files are allowed',

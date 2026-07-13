@@ -121,9 +121,9 @@ model Store {
   avgRevenueMax    Float?
   mainProblems     Json        @default("[]")
   goals            Json        @default("[]")
-  photos           Json        @default("[]")
-  logoUrl          String?
-  storefrontPhotos Json        @default("[]")
+  menuPhotos       Json        @default("[]")
+  coverUrl         String?
+  storePhotos      Json        @default("[]")
   status           StoreStatus @default(REGISTERED)
   ownerId          String?
   createdAt        DateTime    @default(now())

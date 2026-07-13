@@ -12,7 +12,7 @@ export class UpdateStoreStatusDto {
 }
 
 export class RemovePhotoDto {
-  @ApiProperty({ example: '/uploads/stores/abc123/photos/xyz.jpg' })
+  @ApiProperty({ example: '/uploads/stores/abc123/menu-photos/xyz.jpg' })
   @IsString()
   @MinLength(1)
   url: string;

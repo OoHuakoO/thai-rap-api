@@ -11,4 +11,5 @@ export interface StoreStats {
   t1CompletedCount: number;
   passedCount: number;
   byProvince: ProvinceDistribution[];
+  storeTypes: string[];
 }

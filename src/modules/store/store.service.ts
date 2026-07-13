@@ -40,13 +40,15 @@ export class StoreService {
   }
 
   async getStats(): Promise<StoreStats> {
-    const [total, t0CompletedCount, t1CompletedCount, passedCount, byProvince] = await Promise.all([
-      this.storeRepo.countAll(),
-      this.storeRepo.countDistinctStoresByRound(Round.T0),
-      this.storeRepo.countDistinctStoresByRound(Round.T1),
-      this.storeRepo.countByStatus(PASSED_STATUSES),
-      this.storeRepo.countByProvince(),
-    ]);
+    const [total, t0CompletedCount, t1CompletedCount, passedCount, byProvince, storeTypes] =
+      await Promise.all([
+        this.storeRepo.countAll(),
+        this.storeRepo.countDistinctStoresByRound(Round.T0),
+        this.storeRepo.countDistinctStoresByRound(Round.T1),
+        this.storeRepo.countByStatus(PASSED_STATUSES),
+        this.storeRepo.countByProvince(),
+        this.storeRepo.findDistinctStoreTypes(),
+      ]);
 
     return {
       total,
@@ -55,6 +57,7 @@ export class StoreService {
       t1CompletedCount,
       passedCount,
       byProvince,
+      storeTypes,
     };
   }
 
@@ -141,49 +144,7 @@ export class StoreService {
     await deleteLocalFile(doc.url);
   }
 
-  async uploadPhoto(id: string, file: Express.Multer.File, user: JwtPayload): Promise<string[]> {
-    const store = await this.getStoreOrThrow(id);
-    this.assertCanManage(user, store);
-
-    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    const saved = await saveLocalFile(`stores/${id}/photos`, originalName, file.buffer);
-    const photos = [...(store.photos as string[]), saved.relativeUrl];
-    const updated = await this.storeRepo.updatePhotos(id, photos);
-    return updated.photos as string[];
-  }
-
-  async removePhoto(id: string, url: string, user: JwtPayload): Promise<string[]> {
-    const store = await this.getStoreOrThrow(id);
-    this.assertCanManage(user, store);
-
-    const photos = (store.photos as string[]).filter((p) => p !== url);
-    const updated = await this.storeRepo.updatePhotos(id, photos);
-    await deleteLocalFile(url);
-    return updated.photos as string[];
-  }
-
-  async uploadLogo(id: string, file: Express.Multer.File, user: JwtPayload): Promise<string> {
-    const store = await this.getStoreOrThrow(id);
-    this.assertCanManage(user, store);
-
-    if (store.logoUrl) await deleteLocalFile(store.logoUrl);
-
-    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    const saved = await saveLocalFile(`stores/${id}/logo`, originalName, file.buffer);
-    const updated = await this.storeRepo.update(id, { logoUrl: saved.relativeUrl });
-    return updated.logoUrl as string;
-  }
-
-  async removeLogo(id: string, user: JwtPayload): Promise<null> {
-    const store = await this.getStoreOrThrow(id);
-    this.assertCanManage(user, store);
-
-    if (store.logoUrl) await deleteLocalFile(store.logoUrl);
-    await this.storeRepo.update(id, { logoUrl: null });
-    return null;
-  }
-
-  async uploadStorefrontPhoto(
+  async uploadMenuPhoto(
     id: string,
     file: Express.Multer.File,
     user: JwtPayload,
@@ -192,20 +153,66 @@ export class StoreService {
     this.assertCanManage(user, store);
 
     const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    const saved = await saveLocalFile(`stores/${id}/storefront-photos`, originalName, file.buffer);
-    const photos = [...(store.storefrontPhotos as string[]), saved.relativeUrl];
-    const updated = await this.storeRepo.update(id, { storefrontPhotos: photos });
-    return updated.storefrontPhotos as string[];
+    const saved = await saveLocalFile(`stores/${id}/menu-photos`, originalName, file.buffer);
+    const menuPhotos = [...(store.menuPhotos as string[]), saved.relativeUrl];
+    const updated = await this.storeRepo.updateMenuPhotos(id, menuPhotos);
+    return updated.menuPhotos as string[];
   }
 
-  async removeStorefrontPhoto(id: string, url: string, user: JwtPayload): Promise<string[]> {
+  async removeMenuPhoto(id: string, url: string, user: JwtPayload): Promise<string[]> {
     const store = await this.getStoreOrThrow(id);
     this.assertCanManage(user, store);
 
-    const photos = (store.storefrontPhotos as string[]).filter((p) => p !== url);
-    const updated = await this.storeRepo.update(id, { storefrontPhotos: photos });
+    const menuPhotos = (store.menuPhotos as string[]).filter((p) => p !== url);
+    const updated = await this.storeRepo.updateMenuPhotos(id, menuPhotos);
     await deleteLocalFile(url);
-    return updated.storefrontPhotos as string[];
+    return updated.menuPhotos as string[];
+  }
+
+  async uploadCover(id: string, file: Express.Multer.File, user: JwtPayload): Promise<string> {
+    const store = await this.getStoreOrThrow(id);
+    this.assertCanManage(user, store);
+
+    if (store.coverUrl) await deleteLocalFile(store.coverUrl);
+
+    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    const saved = await saveLocalFile(`stores/${id}/cover`, originalName, file.buffer);
+    const updated = await this.storeRepo.update(id, { coverUrl: saved.relativeUrl });
+    return updated.coverUrl as string;
+  }
+
+  async removeCover(id: string, user: JwtPayload): Promise<null> {
+    const store = await this.getStoreOrThrow(id);
+    this.assertCanManage(user, store);
+
+    if (store.coverUrl) await deleteLocalFile(store.coverUrl);
+    await this.storeRepo.update(id, { coverUrl: null });
+    return null;
+  }
+
+  async uploadStorePhoto(
+    id: string,
+    file: Express.Multer.File,
+    user: JwtPayload,
+  ): Promise<string[]> {
+    const store = await this.getStoreOrThrow(id);
+    this.assertCanManage(user, store);
+
+    const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    const saved = await saveLocalFile(`stores/${id}/store-photos`, originalName, file.buffer);
+    const menuPhotos = [...(store.storePhotos as string[]), saved.relativeUrl];
+    const updated = await this.storeRepo.update(id, { storePhotos: menuPhotos });
+    return updated.storePhotos as string[];
+  }
+
+  async removeStorePhoto(id: string, url: string, user: JwtPayload): Promise<string[]> {
+    const store = await this.getStoreOrThrow(id);
+    this.assertCanManage(user, store);
+
+    const menuPhotos = (store.storePhotos as string[]).filter((p) => p !== url);
+    const updated = await this.storeRepo.update(id, { storePhotos: menuPhotos });
+    await deleteLocalFile(url);
+    return updated.storePhotos as string[];
   }
 
   private async assertValidProvince(province: string): Promise<void> {
@@ -271,9 +278,9 @@ export class StoreService {
       avgRevenueMax: store.avgRevenueMax,
       mainProblems: store.mainProblems as string[],
       goals: store.goals as string[],
-      photos: store.photos as string[],
-      logoUrl: store.logoUrl,
-      storefrontPhotos: store.storefrontPhotos as string[],
+      menuPhotos: store.menuPhotos as string[],
+      coverUrl: store.coverUrl,
+      storePhotos: store.storePhotos as string[],
       documents: documents.map((d) => this.toDocumentResult(d)),
       status: store.status,
       ownerId: store.ownerId,

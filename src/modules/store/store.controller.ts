@@ -18,20 +18,24 @@ import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nes
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { BadRequestException } from '@common/exceptions/app.exception';
-import { ERROR_CODES } from '@constants/index';
+import {
+  ERROR_CODES,
+  FILE_MAX_SIZE_BYTES,
+  FILE_MAX_SIZE_MB,
+  PHOTO_MIME_REGEX,
+  STORE_DOCUMENT_MIME_REGEX,
+} from '@constants/index';
 import { StoreService } from './store.service';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto, UpdateStoreStatusDto, RemovePhotoDto } from './dto/update-store.dto';
 import { QueryStoreDto } from './dto/query-store.dto';
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const DOCUMENT_MIME_REGEX =
-  /^(image\/(jpeg|png|webp)|application\/(pdf|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet))$/;
-const PHOTO_MIME_REGEX = /^image\/(jpeg|png|webp)$/;
-
 function fileExceptionFactory(error: string) {
   return error.toLowerCase().includes('size')
-    ? new BadRequestException(ERROR_CODES.FILE.TOO_LARGE, 'File exceeds the 10 MB limit')
+    ? new BadRequestException(
+        ERROR_CODES.FILE.TOO_LARGE,
+        `File exceeds the ${FILE_MAX_SIZE_MB} MB limit`,
+      )
     : new BadRequestException(ERROR_CODES.FILE.INVALID_TYPE, 'File type is not allowed');
 }
 
@@ -106,8 +110,8 @@ export class StoreController {
     @UploadedFile(
       new ParseFilePipe({
         validators: [
-          new MaxFileSizeValidator({ maxSize: MAX_FILE_SIZE }),
-          new FileTypeValidator({ fileType: DOCUMENT_MIME_REGEX }),
+          new MaxFileSizeValidator({ maxSize: FILE_MAX_SIZE_BYTES }),
+          new FileTypeValidator({ fileType: STORE_DOCUMENT_MIME_REGEX }),
         ],
         exceptionFactory: fileExceptionFactory,
       }),
@@ -129,7 +133,7 @@ export class StoreController {
     return null;
   }
 
-  @Post(':id/photos')
+  @Post(':id/menu-photos')
   @ApiOperation({ summary: 'Upload a menu photo for a store (stored on local disk)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -140,12 +144,12 @@ export class StoreController {
     },
   })
   @UseInterceptors(FileInterceptor('file'))
-  uploadPhoto(
+  uploadMenuPhoto(
     @Param('id') id: string,
     @UploadedFile(
       new ParseFilePipe({
         validators: [
-          new MaxFileSizeValidator({ maxSize: MAX_FILE_SIZE }),
+          new MaxFileSizeValidator({ maxSize: FILE_MAX_SIZE_BYTES }),
           new FileTypeValidator({ fileType: PHOTO_MIME_REGEX }),
         ],
         exceptionFactory: fileExceptionFactory,
@@ -154,21 +158,21 @@ export class StoreController {
     file: Express.Multer.File,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.storeService.uploadPhoto(id, file, user);
+    return this.storeService.uploadMenuPhoto(id, file, user);
   }
 
-  @Delete(':id/photos')
+  @Delete(':id/menu-photos')
   @ApiOperation({ summary: 'Delete a menu photo by url' })
-  removePhoto(
+  removeMenuPhoto(
     @Param('id') id: string,
     @Body() dto: RemovePhotoDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.storeService.removePhoto(id, dto.url, user);
+    return this.storeService.removeMenuPhoto(id, dto.url, user);
   }
 
-  @Post(':id/logo')
-  @ApiOperation({ summary: 'Upload (replace) a store logo (stored on local disk)' })
+  @Post(':id/cover')
+  @ApiOperation({ summary: 'Upload (replace) a store cover (stored on local disk)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -178,12 +182,12 @@ export class StoreController {
     },
   })
   @UseInterceptors(FileInterceptor('file'))
-  uploadLogo(
+  uploadCover(
     @Param('id') id: string,
     @UploadedFile(
       new ParseFilePipe({
         validators: [
-          new MaxFileSizeValidator({ maxSize: MAX_FILE_SIZE }),
+          new MaxFileSizeValidator({ maxSize: FILE_MAX_SIZE_BYTES }),
           new FileTypeValidator({ fileType: PHOTO_MIME_REGEX }),
         ],
         exceptionFactory: fileExceptionFactory,
@@ -192,17 +196,17 @@ export class StoreController {
     file: Express.Multer.File,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.storeService.uploadLogo(id, file, user);
+    return this.storeService.uploadCover(id, file, user);
   }
 
-  @Delete(':id/logo')
-  @ApiOperation({ summary: 'Remove the store logo' })
-  removeLogo(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return this.storeService.removeLogo(id, user);
+  @Delete(':id/cover')
+  @ApiOperation({ summary: 'Remove the store cover' })
+  removeCover(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.storeService.removeCover(id, user);
   }
 
-  @Post(':id/storefront-photos')
-  @ApiOperation({ summary: 'Upload a storefront photo for a store (stored on local disk)' })
+  @Post(':id/store-photos')
+  @ApiOperation({ summary: 'Upload a store photo for a store (stored on local disk)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -212,12 +216,12 @@ export class StoreController {
     },
   })
   @UseInterceptors(FileInterceptor('file'))
-  uploadStorefrontPhoto(
+  uploadStorePhoto(
     @Param('id') id: string,
     @UploadedFile(
       new ParseFilePipe({
         validators: [
-          new MaxFileSizeValidator({ maxSize: MAX_FILE_SIZE }),
+          new MaxFileSizeValidator({ maxSize: FILE_MAX_SIZE_BYTES }),
           new FileTypeValidator({ fileType: PHOTO_MIME_REGEX }),
         ],
         exceptionFactory: fileExceptionFactory,
@@ -226,16 +230,16 @@ export class StoreController {
     file: Express.Multer.File,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.storeService.uploadStorefrontPhoto(id, file, user);
+    return this.storeService.uploadStorePhoto(id, file, user);
   }
 
-  @Delete(':id/storefront-photos')
-  @ApiOperation({ summary: 'Delete a storefront photo by url' })
-  removeStorefrontPhoto(
+  @Delete(':id/store-photos')
+  @ApiOperation({ summary: 'Delete a store photo by url' })
+  removeStorePhoto(
     @Param('id') id: string,
     @Body() dto: RemovePhotoDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.storeService.removeStorefrontPhoto(id, dto.url, user);
+    return this.storeService.removeStorePhoto(id, dto.url, user);
   }
 }

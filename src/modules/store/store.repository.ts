@@ -119,8 +119,17 @@ export class StoreRepository {
     return this.prisma.storeDocument.delete({ where: { id } });
   }
 
-  updatePhotos(id: string, photos: string[]): Promise<Store> {
-    return this.prisma.store.update({ where: { id }, data: { photos } });
+  updateMenuPhotos(id: string, menuPhotos: string[]): Promise<Store> {
+    return this.prisma.store.update({ where: { id }, data: { menuPhotos } });
+  }
+
+  async findDistinctStoreTypes(): Promise<string[]> {
+    const rows = await this.prisma.store.findMany({
+      distinct: ['storeType'],
+      select: { storeType: true },
+      orderBy: { storeType: 'asc' },
+    });
+    return rows.map((r) => r.storeType);
   }
 
   async countByProvince(): Promise<ProvinceDistribution[]> {

@@ -23,9 +23,9 @@ export interface StoreResult {
   avgRevenueMax: number | null;
   mainProblems: string[];
   goals: string[];
-  photos: string[];
-  logoUrl: string | null;
-  storefrontPhotos: string[];
+  menuPhotos: string[];
+  coverUrl: string | null;
+  storePhotos: string[];
   documents: StoreDocumentResult[];
   status: StoreStatus;
   ownerId: string | null;
