@@ -19,7 +19,8 @@ export interface StoreResult {
   email: string | null;
   address: string;
   socialLinks: Record<string, string>;
-  avgRevenue: number | null;
+  avgRevenueMin: number | null;
+  avgRevenueMax: number | null;
   mainProblems: string[];
   goals: string[];
   photos: string[];

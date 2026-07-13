@@ -147,10 +147,11 @@ describe('Store (e2e)', () => {
       const res = await request(app.getHttpServer())
         .patch(`/api/v1/stores/${storeId}`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ avgRevenue: 20000 })
+        .send({ avgRevenueMin: 20000, avgRevenueMax: 30000 })
         .expect(200);
 
-      expect(res.body.data.avgRevenue).toBe(20000);
+      expect(res.body.data.avgRevenueMin).toBe(20000);
+      expect(res.body.data.avgRevenueMax).toBe(30000);
     });
 
     it('updates store status as ADMIN', async () => {

@@ -54,7 +54,13 @@ export class CreateStoreDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
-  avgRevenue?: number;
+  avgRevenueMin?: number;
+
+  @ApiPropertyOptional({ example: 25000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  avgRevenueMax?: number;
 
   @ApiPropertyOptional({ example: ['ยอดขายไม่แน่นอน', 'ต้นทุนสูง'], type: [String] })
   @IsOptional()
