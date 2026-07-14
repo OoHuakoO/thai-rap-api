@@ -3,6 +3,7 @@ import {
   AssessmentStatus,
   Round,
   type Prisma,
+  type Role,
   type Store,
   type StoreDocument,
   type StoreStatus,
@@ -11,6 +12,31 @@ import { PrismaService } from '@database/prisma.service';
 import type { QueryStoreDto } from './dto/query-store.dto';
 import type { ProvinceDistribution } from './types/store-stats.type';
 import type { LatestAssessmentInfo } from './types/store-result.type';
+
+export type PhotoField = 'menuPhotos' | 'storePhotos';
+
+const STORE_SELECT = {
+  id: true,
+  name: true,
+  province: true,
+  storeType: true,
+  ownerName: true,
+  phone: true,
+  email: true,
+  address: true,
+  socialLinks: true,
+  avgRevenueMin: true,
+  avgRevenueMax: true,
+  mainProblems: true,
+  goals: true,
+  menuPhotos: true,
+  coverUrl: true,
+  storePhotos: true,
+  status: true,
+  ownerId: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.StoreSelect;
 
 @Injectable()
 export class StoreRepository {
@@ -35,6 +61,7 @@ export class StoreRepository {
   findAll(query: QueryStoreDto, skip: number, take: number, ownerId?: string): Promise<Store[]> {
     return this.prisma.store.findMany({
       where: this.buildWhere(query, ownerId),
+      select: STORE_SELECT,
       skip,
       take,
       orderBy: { createdAt: 'desc' },
@@ -46,7 +73,14 @@ export class StoreRepository {
   }
 
   findById(id: string): Promise<(Store & { documents: StoreDocument[] }) | null> {
-    return this.prisma.store.findUnique({ where: { id }, include: { documents: true } });
+    return this.prisma.store.findUnique({
+      where: { id },
+      select: { ...STORE_SELECT, documents: true },
+    });
+  }
+
+  findUserRole(id: string): Promise<{ id: string; role: Role } | null> {
+    return this.prisma.user.findUnique({ where: { id }, select: { id: true, role: true } });
   }
 
   create(data: Prisma.StoreUncheckedCreateInput): Promise<Store> {
@@ -119,8 +153,44 @@ export class StoreRepository {
     return this.prisma.storeDocument.delete({ where: { id } });
   }
 
-  updateMenuPhotos(id: string, menuPhotos: string[]): Promise<Store> {
-    return this.prisma.store.update({ where: { id }, data: { menuPhotos } });
+  // Photo arrays are JSON columns mutated read-modify-write; the row lock keeps
+  // two concurrent uploads from overwriting each other's append.
+  private mutatePhotosLocked(
+    id: string,
+    field: PhotoField,
+    mutate: (current: string[]) => string[],
+  ): Promise<string[]> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM \`Store\` WHERE id = ${id} FOR UPDATE`;
+      const row = await tx.store.findUniqueOrThrow({
+        where: { id },
+        select: { menuPhotos: true, storePhotos: true },
+      });
+      const next = mutate(row[field] as string[]);
+      const updated = await tx.store.update({
+        where: { id },
+        data: { [field]: next },
+        select: { menuPhotos: true, storePhotos: true },
+      });
+      return updated[field] as string[];
+    });
+  }
+
+  appendPhoto(id: string, field: PhotoField, url: string): Promise<string[]> {
+    return this.mutatePhotosLocked(id, field, (current) => [...current, url]);
+  }
+
+  async removePhoto(
+    id: string,
+    field: PhotoField,
+    url: string,
+  ): Promise<{ photos: string[]; removed: boolean }> {
+    let removed = false;
+    const photos = await this.mutatePhotosLocked(id, field, (current) => {
+      removed = current.includes(url);
+      return current.filter((p) => p !== url);
+    });
+    return { photos, removed };
   }
 
   async findDistinctStoreTypes(): Promise<string[]> {

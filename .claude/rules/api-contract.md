@@ -47,3 +47,8 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   is `VALID_001` (`BAD_REQUEST`). Web mock: `mocks/handlers/user.handlers.ts`.
 - Store documents accept pdf / xlsx / docx / csv only (no images) — matches
   `accept` in `features/store/components/store-document-manager.tsx`.
+- Upload extension whitelists (`*_ALLOWED_EXTENSIONS` in `file-upload.const.ts`)
+  mirror the MIME regexes and the web `accept` attributes — change them together.
+- `GET /stores/stats` is staff-only (403 `PERM_001` for ENTREPRENEUR). Web
+  `useStoreStats` (`features/store/hooks/use-stores.ts`) calls it for every
+  role; entrepreneur degrades to a hidden stats bar and empty filter dropdowns.

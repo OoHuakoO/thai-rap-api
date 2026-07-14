@@ -1,14 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsArray,
-  IsEmail,
-  IsNumber,
-  IsObject,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsArray, IsEmail, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsStringRecord } from '@common/validators/is-string-record.validator';
 
 export class CreateStoreDto {
   @ApiProperty({ example: 'ร้านส้มตำป้าแดง' })
@@ -47,7 +39,7 @@ export class CreateStoreDto {
 
   @ApiPropertyOptional({ example: { facebook: 'https://facebook.com/somrestaurant' } })
   @IsOptional()
-  @IsObject()
+  @IsStringRecord()
   socialLinks?: Record<string, string>;
 
   @ApiPropertyOptional({ example: 15000 })

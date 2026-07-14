@@ -6,12 +6,17 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@common/exceptions/app.exception';
-import { ERROR_CODES, STORE_TARGET_TOTAL } from '@constants/index';
+import {
+  ERROR_CODES,
+  STORE_TARGET_TOTAL,
+  PHOTO_ALLOWED_EXTENSIONS,
+  STORE_DOCUMENT_ALLOWED_EXTENSIONS,
+} from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
-import { saveLocalFile, deleteLocalFile } from '@shared/file-storage.util';
+import { saveLocalFile, deleteLocalFile, deleteLocalDir } from '@shared/file-storage.util';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { ProvinceService } from '@modules/province/province.service';
-import { StoreRepository } from './store.repository';
+import { StoreRepository, type PhotoField } from './store.repository';
 import type { CreateStoreDto } from './dto/create-store.dto';
 import type { UpdateStoreDto, UpdateStoreStatusDto } from './dto/update-store.dto';
 import type { QueryStoreDto } from './dto/query-store.dto';
@@ -39,7 +44,10 @@ export class StoreService {
     return buildPaginatedResult(results, total, page, limit);
   }
 
-  async getStats(): Promise<StoreStats> {
+  async getStats(user: JwtPayload): Promise<StoreStats> {
+    if (user.role === Role.ENTREPRENEUR) {
+      throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'Access denied');
+    }
     const [total, t0CompletedCount, t1CompletedCount, passedCount, byProvince, storeTypes] =
       await Promise.all([
         this.storeRepo.countAll(),
@@ -78,8 +86,15 @@ export class StoreService {
       );
     }
     await this.assertValidProvince(dto.province);
+    this.assertRevenueRange(dto.avgRevenueMin ?? null, dto.avgRevenueMax ?? null);
     const { ownerId: requestedOwnerId, ...rest } = dto;
-    const ownerId = user.role === Role.ENTREPRENEUR ? user.sub : (requestedOwnerId ?? null);
+    let ownerId: string | null;
+    if (user.role === Role.ENTREPRENEUR) {
+      ownerId = user.sub;
+    } else {
+      if (requestedOwnerId) await this.assertValidOwner(requestedOwnerId);
+      ownerId = requestedOwnerId ?? null;
+    }
     const created = await this.storeRepo.create({
       ...rest,
       socialLinks: dto.socialLinks ?? {},
@@ -92,6 +107,10 @@ export class StoreService {
     const store = await this.getStoreOrThrow(id);
     this.assertCanManage(user, store);
     if (dto.province) await this.assertValidProvince(dto.province);
+    this.assertRevenueRange(
+      dto.avgRevenueMin ?? store.avgRevenueMin,
+      dto.avgRevenueMax ?? store.avgRevenueMax,
+    );
     const updated = await this.storeRepo.update(id, dto);
     return this.toResult(updated, store.documents);
   }
@@ -111,6 +130,7 @@ export class StoreService {
     const store = await this.getStoreOrThrow(id);
     this.assertCanManage(user, store);
     await this.storeRepo.remove(id);
+    await deleteLocalDir(`stores/${id}`);
   }
 
   async uploadDocument(
@@ -122,7 +142,12 @@ export class StoreService {
     this.assertCanManage(user, store);
 
     const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    const saved = await saveLocalFile(`stores/${id}/documents`, originalName, file.buffer);
+    const saved = await saveLocalFile(
+      `stores/${id}/documents`,
+      originalName,
+      file.buffer,
+      STORE_DOCUMENT_ALLOWED_EXTENSIONS,
+    );
     const doc = await this.storeRepo.createDocument(id, {
       filename: originalName,
       fileType: file.mimetype,
@@ -153,31 +178,36 @@ export class StoreService {
     this.assertCanManage(user, store);
 
     const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    const saved = await saveLocalFile(`stores/${id}/menu-photos`, originalName, file.buffer);
-    const menuPhotos = [...(store.menuPhotos as string[]), saved.relativeUrl];
-    const updated = await this.storeRepo.updateMenuPhotos(id, menuPhotos);
-    return updated.menuPhotos as string[];
+    const saved = await saveLocalFile(
+      `stores/${id}/menu-photos`,
+      originalName,
+      file.buffer,
+      PHOTO_ALLOWED_EXTENSIONS,
+    );
+    return this.storeRepo.appendPhoto(id, 'menuPhotos', saved.relativeUrl);
   }
 
   async removeMenuPhoto(id: string, url: string, user: JwtPayload): Promise<string[]> {
     const store = await this.getStoreOrThrow(id);
     this.assertCanManage(user, store);
-
-    const menuPhotos = (store.menuPhotos as string[]).filter((p) => p !== url);
-    const updated = await this.storeRepo.updateMenuPhotos(id, menuPhotos);
-    await deleteLocalFile(url);
-    return updated.menuPhotos as string[];
+    return this.removePhotoAndFile(id, 'menuPhotos', url);
   }
 
   async uploadCover(id: string, file: Express.Multer.File, user: JwtPayload): Promise<string> {
     const store = await this.getStoreOrThrow(id);
     this.assertCanManage(user, store);
 
-    if (store.coverUrl) await deleteLocalFile(store.coverUrl);
-
     const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    const saved = await saveLocalFile(`stores/${id}/cover`, originalName, file.buffer);
+    const saved = await saveLocalFile(
+      `stores/${id}/cover`,
+      originalName,
+      file.buffer,
+      PHOTO_ALLOWED_EXTENSIONS,
+    );
     const updated = await this.storeRepo.update(id, { coverUrl: saved.relativeUrl });
+    // Delete the old file only after the new cover is saved and committed —
+    // failing earlier must not leave the DB pointing at a deleted file.
+    if (store.coverUrl) await deleteLocalFile(store.coverUrl);
     return updated.coverUrl as string;
   }
 
@@ -185,8 +215,8 @@ export class StoreService {
     const store = await this.getStoreOrThrow(id);
     this.assertCanManage(user, store);
 
-    if (store.coverUrl) await deleteLocalFile(store.coverUrl);
     await this.storeRepo.update(id, { coverUrl: null });
+    if (store.coverUrl) await deleteLocalFile(store.coverUrl);
     return null;
   }
 
@@ -199,20 +229,49 @@ export class StoreService {
     this.assertCanManage(user, store);
 
     const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    const saved = await saveLocalFile(`stores/${id}/store-photos`, originalName, file.buffer);
-    const menuPhotos = [...(store.storePhotos as string[]), saved.relativeUrl];
-    const updated = await this.storeRepo.update(id, { storePhotos: menuPhotos });
-    return updated.storePhotos as string[];
+    const saved = await saveLocalFile(
+      `stores/${id}/store-photos`,
+      originalName,
+      file.buffer,
+      PHOTO_ALLOWED_EXTENSIONS,
+    );
+    return this.storeRepo.appendPhoto(id, 'storePhotos', saved.relativeUrl);
   }
 
   async removeStorePhoto(id: string, url: string, user: JwtPayload): Promise<string[]> {
     const store = await this.getStoreOrThrow(id);
     this.assertCanManage(user, store);
+    return this.removePhotoAndFile(id, 'storePhotos', url);
+  }
 
-    const menuPhotos = (store.storePhotos as string[]).filter((p) => p !== url);
-    const updated = await this.storeRepo.update(id, { storePhotos: menuPhotos });
+  // Deleting the file is gated on the url actually being in this store's list —
+  // otherwise any store manager could delete files belonging to other stores.
+  private async removePhotoAndFile(id: string, field: PhotoField, url: string): Promise<string[]> {
+    const { photos, removed } = await this.storeRepo.removePhoto(id, field, url);
+    if (!removed) {
+      throw new NotFoundException(ERROR_CODES.STORE.PHOTO_NOT_FOUND, 'Photo not found');
+    }
     await deleteLocalFile(url);
-    return updated.storePhotos as string[];
+    return photos;
+  }
+
+  private async assertValidOwner(ownerId: string): Promise<void> {
+    const owner = await this.storeRepo.findUserRole(ownerId);
+    if (!owner || owner.role !== Role.ENTREPRENEUR) {
+      throw new BadRequestException(
+        ERROR_CODES.STORE.INVALID_OWNER,
+        'ownerId must reference an existing entrepreneur user',
+      );
+    }
+  }
+
+  private assertRevenueRange(min: number | null, max: number | null): void {
+    if (min !== null && max !== null && max < min) {
+      throw new BadRequestException(
+        ERROR_CODES.STORE.INVALID_REVENUE_RANGE,
+        'avgRevenueMax must be greater than or equal to avgRevenueMin',
+      );
+    }
   }
 
   private async assertValidProvince(province: string): Promise<void> {

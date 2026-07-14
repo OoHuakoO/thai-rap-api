@@ -3,7 +3,11 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { AuthRepository } from './auth.repository';
-import { ConflictException, UnauthorizedException } from '@common/exceptions/app.exception';
+import {
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@common/exceptions/app.exception';
 import * as hashUtil from '@shared/hash.util';
 import { Role, UserStatus, type User } from '@prisma/client';
 
@@ -77,7 +81,7 @@ describe('AuthService', () => {
       jwtService.signAsync.mockResolvedValue('mock-token');
 
       jest.spyOn(hashUtil, 'hashPassword').mockResolvedValue('hashed');
-      jest.spyOn(hashUtil, 'hashToken').mockResolvedValue('hashed-refresh');
+      jest.spyOn(hashUtil, 'hashToken').mockReturnValue('hashed-refresh');
 
       const result = await service.register({
         name: 'Test User',
@@ -121,6 +125,69 @@ describe('AuthService', () => {
       await expect(
         service.login({ email: 'test@example.com', password: 'wrongpassword' }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe('refresh', () => {
+    const mockTokenRecord = {
+      id: 'token-1',
+      userId: 'user-1',
+      tokenHash: 'stored-hash',
+      expiresAt: new Date(Date.now() + 86_400_000),
+      revokedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any;
+
+    it('should issue new tokens for a valid refresh token', async () => {
+      repository.findRefreshToken.mockResolvedValue(mockTokenRecord);
+      repository.findUserById.mockResolvedValue(mockUser);
+      repository.upsertRefreshToken.mockResolvedValue({} as any);
+      jwtService.signAsync.mockResolvedValue('mock-token');
+      jest.spyOn(hashUtil, 'compareToken').mockReturnValue(true);
+      jest.spyOn(hashUtil, 'hashToken').mockReturnValue('hashed-refresh');
+
+      const result = await service.refresh('user-1', 'raw-refresh-token');
+
+      expect(result.accessToken).toBe('mock-token');
+      expect(repository.upsertRefreshToken).toHaveBeenCalled();
+    });
+
+    it('should throw UnauthorizedException when refresh token not found', async () => {
+      repository.findRefreshToken.mockResolvedValue(null);
+
+      await expect(service.refresh('user-1', 'raw-refresh-token')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException when refresh token hash does not match', async () => {
+      repository.findRefreshToken.mockResolvedValue(mockTokenRecord);
+      jest.spyOn(hashUtil, 'compareToken').mockReturnValue(false);
+
+      await expect(service.refresh('user-1', 'raw-refresh-token')).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw ForbiddenException when user is suspended', async () => {
+      repository.findRefreshToken.mockResolvedValue(mockTokenRecord);
+      repository.findUserById.mockResolvedValue({ ...mockUser, status: UserStatus.SUSPENDED });
+      jest.spyOn(hashUtil, 'compareToken').mockReturnValue(true);
+
+      await expect(service.refresh('user-1', 'raw-refresh-token')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('should throw ForbiddenException when user is pending activation', async () => {
+      repository.findRefreshToken.mockResolvedValue(mockTokenRecord);
+      repository.findUserById.mockResolvedValue({ ...mockUser, status: UserStatus.PENDING });
+      jest.spyOn(hashUtil, 'compareToken').mockReturnValue(true);
+
+      await expect(service.refresh('user-1', 'raw-refresh-token')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
     });
   });
 });

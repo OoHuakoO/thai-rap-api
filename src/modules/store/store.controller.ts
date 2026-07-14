@@ -54,9 +54,9 @@ export class StoreController {
   }
 
   @Get('stats')
-  @ApiOperation({ summary: 'Get aggregate store stats for the dashboard' })
-  getStats() {
-    return this.storeService.getStats();
+  @ApiOperation({ summary: 'Get aggregate store stats for the dashboard (staff roles only)' })
+  getStats(@CurrentUser() user: JwtPayload) {
+    return this.storeService.getStats(user);
   }
 
   @Get(':id')

@@ -2,6 +2,17 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma, User, RefreshToken } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 
+const USER_SELECT_NO_PASSWORD = {
+  id: true,
+  name: true,
+  email: true,
+  role: true,
+  status: true,
+  lastLogin: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.UserSelect;
+
 @Injectable()
 export class AuthRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -10,8 +21,8 @@ export class AuthRepository {
     return this.prisma.user.findUnique({ where: { email } });
   }
 
-  findUserById(id: string): Promise<User | null> {
-    return this.prisma.user.findUnique({ where: { id } });
+  findUserById(id: string): Promise<Omit<User, 'password'> | null> {
+    return this.prisma.user.findUnique({ where: { id }, select: USER_SELECT_NO_PASSWORD });
   }
 
   createUser(data: Prisma.UserCreateInput): Promise<User> {

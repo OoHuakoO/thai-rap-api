@@ -112,12 +112,19 @@ async getStore(id: string, user: JwtPayload): Promise<Store> {
   if (user.role === Role.ENTREPRENEUR && store.ownerId !== user.sub) {
     throw new ForbiddenException('PERM_001', 'Access denied');
   }
-  if (user.role === Role.ASSESSOR && !store.assignedUsers.some(u => u.id === user.sub)) {
-    throw new ForbiddenException('PERM_002', 'Not assigned to this store');
-  }
   return store;
 }
 ```
+
+Store access rules:
+
+- **ENTREPRENEUR** reads and manages only the store they own (`store.ownerId === user.sub`).
+- **ASSESSOR and other staff roles** read every store — do NOT gate store reads on
+  `Store.assignedUsers`. That relation exists in the schema for assessor
+  assignment but is intentionally not an access filter; assignment checks (if
+  any) belong to assessment write flows, not store reads.
+- Store aggregate stats (`GET /stores/stats`) are staff-only — ENTREPRENEUR is
+  forbidden.
 
 Never trust role from request body. Always use `@CurrentUser()` JWT payload.
 

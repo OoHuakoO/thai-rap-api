@@ -113,7 +113,7 @@ export class AuthService {
       );
     }
 
-    const isValid = await compareToken(rawRefreshToken, tokenRecord.tokenHash);
+    const isValid = compareToken(rawRefreshToken, tokenRecord.tokenHash);
     if (!isValid) {
       throw new UnauthorizedException(
         ERROR_CODES.AUTH.REFRESH_TOKEN_INVALID,
@@ -124,6 +124,17 @@ export class AuthService {
     const user = await this.authRepository.findUserById(userId);
     if (!user) {
       throw new NotFoundException(ERROR_CODES.USER.NOT_FOUND, 'User not found');
+    }
+
+    if (user.status === UserStatus.SUSPENDED) {
+      throw new ForbiddenException(ERROR_CODES.AUTH.ACCOUNT_SUSPENDED, 'Account is suspended');
+    }
+
+    if (user.status === UserStatus.PENDING) {
+      throw new ForbiddenException(
+        ERROR_CODES.AUTH.ACCOUNT_PENDING,
+        'Account is pending activation',
+      );
     }
 
     const tokens = await this.issueTokens(user.id, user.email, user.role);
@@ -144,7 +155,7 @@ export class AuthService {
     if (!user) {
       throw new NotFoundException(ERROR_CODES.USER.NOT_FOUND, 'User not found');
     }
-    return this.omitPassword(user);
+    return user;
   }
 
   private async issueTokens(userId: string, email: string, role: string): Promise<AuthTokens> {
@@ -166,11 +177,9 @@ export class AuthService {
   }
 
   private async storeRefreshToken(userId: string, rawToken: string): Promise<void> {
-    const tokenHash = await hashToken(rawToken);
-    const expiresAt = new Date();
-    expiresAt.setDate(
-      expiresAt.getDate() + this.configService.get<number>('auth.jwtRefreshExpiresInDays', 7),
-    );
+    const tokenHash = hashToken(rawToken);
+    const days = this.configService.get<number>('auth.jwtRefreshExpiresInDays', 7);
+    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     await this.authRepository.upsertRefreshToken({ userId, tokenHash, expiresAt });
   }
 

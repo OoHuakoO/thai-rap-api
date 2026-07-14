@@ -6,7 +6,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@common/exceptions/app.exception';
-import { ERROR_CODES } from '@constants/index';
+import { ERROR_CODES, ASSESSMENT_EVIDENCE_ALLOWED_EXTENSIONS } from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
 import { saveLocalFile, deleteLocalFile } from '@shared/file-storage.util';
 import type { PaginatedResult } from '@common/types/api-response.type';
@@ -156,7 +156,12 @@ export class AssessmentService {
     // Multer decodes the multipart filename as latin1 — re-decode as UTF-8 so
     // Thai filenames survive.
     const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    const saved = await saveLocalFile(`evidence/${assessmentId}`, originalName, file.buffer);
+    const saved = await saveLocalFile(
+      `evidence/${assessmentId}`,
+      originalName,
+      file.buffer,
+      ASSESSMENT_EVIDENCE_ALLOWED_EXTENSIONS,
+    );
     const evidence = await this.assessmentRepo.createEvidence(score.id, {
       filename: originalName,
       fileType: file.mimetype,
