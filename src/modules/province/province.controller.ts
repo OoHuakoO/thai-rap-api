@@ -9,7 +9,7 @@ export class ProvinceController {
   constructor(private readonly provinceService: ProvinceService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List all 77 Thai provinces' })
+  @ApiOperation({ summary: 'List the 7 Eastern-region provinces THAI-RAP covers' })
   findAll() {
     return this.provinceService.findAll();
   }

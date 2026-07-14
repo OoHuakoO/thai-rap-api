@@ -123,8 +123,10 @@ Store access rules:
   `Store.assignedUsers`. That relation exists in the schema for assessor
   assignment but is intentionally not an access filter; assignment checks (if
   any) belong to assessment write flows, not store reads.
-- Store aggregate stats (`GET /stores/stats`) are staff-only — ENTREPRENEUR is
-  forbidden.
+- Store aggregate stats (`GET /stores/stats`) are limited to **ADMIN and
+  ENTREPRENEUR only** — matches the roles that can open the web `/stores` page
+  (`ROUTE_PERMISSIONS` in the web repo). ASSESSOR/MENTOR/JUDGE/ME_TEAM get 403
+  `PERM_001`, even though they can read individual stores.
 
 Never trust role from request body. Always use `@CurrentUser()` JWT payload.
 

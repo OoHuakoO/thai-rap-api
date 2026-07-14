@@ -136,20 +136,32 @@ describe('StoreService', () => {
   });
 
   describe('getStats', () => {
-    it('should return stats for staff roles', async () => {
+    it('should return stats for ADMIN', async () => {
       repository.countAll.mockResolvedValue(10);
       repository.countDistinctStoresByRound.mockResolvedValue(5);
       repository.countByStatus.mockResolvedValue(2);
       repository.countByProvince.mockResolvedValue([]);
       repository.findDistinctStoreTypes.mockResolvedValue([]);
 
-      const result = await service.getStats(assessor);
+      const result = await service.getStats(admin);
 
       expect(result.total).toBe(10);
     });
 
-    it('should throw ForbiddenException for ENTREPRENEUR', async () => {
-      await expect(service.getStats(owner)).rejects.toBeInstanceOf(ForbiddenException);
+    it('should return stats for ENTREPRENEUR', async () => {
+      repository.countAll.mockResolvedValue(10);
+      repository.countDistinctStoresByRound.mockResolvedValue(5);
+      repository.countByStatus.mockResolvedValue(2);
+      repository.countByProvince.mockResolvedValue([]);
+      repository.findDistinctStoreTypes.mockResolvedValue([]);
+
+      const result = await service.getStats(owner);
+
+      expect(result.total).toBe(10);
+    });
+
+    it('should throw ForbiddenException for ASSESSOR', async () => {
+      await expect(service.getStats(assessor)).rejects.toBeInstanceOf(ForbiddenException);
       expect(repository.countAll).not.toHaveBeenCalled();
     });
   });

@@ -44,8 +44,10 @@ export class StoreService {
     return buildPaginatedResult(results, total, page, limit);
   }
 
+  // Mirrors the web route guard for /stores, which only ADMIN and ENTREPRENEUR
+  // can open — other staff roles never see this aggregate on the stores page.
   async getStats(user: JwtPayload): Promise<StoreStats> {
-    if (user.role === Role.ENTREPRENEUR) {
+    if (user.role !== Role.ADMIN && user.role !== Role.ENTREPRENEUR) {
       throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'Access denied');
     }
     const [total, t0CompletedCount, t1CompletedCount, passedCount, byProvince, storeTypes] =
