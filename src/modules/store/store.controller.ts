@@ -88,7 +88,7 @@ export class StoreController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete a store (ADMIN only)' })
+  @ApiOperation({ summary: 'Delete a store (ADMIN, or ENTREPRENEUR for their own store)' })
   async remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     await this.storeService.remove(id, user);
     return null;

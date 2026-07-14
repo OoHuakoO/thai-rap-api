@@ -5,21 +5,16 @@ import { AuthService } from './auth.service';
 import { AuthRepository } from './auth.repository';
 import { ConflictException, UnauthorizedException } from '@common/exceptions/app.exception';
 import * as hashUtil from '@shared/hash.util';
-import { Role, UserStatus } from '@prisma/client';
+import { Role, UserStatus, type User } from '@prisma/client';
 
-const mockUser = {
+const mockUser: User = {
   id: 'user-1',
   name: 'Test User',
   email: 'test@example.com',
   password: '$2b$12$hashedpassword',
   role: Role.ADMIN,
   status: UserStatus.ACTIVE,
-  phone: null,
-  department: null,
-  avatar: null,
   lastLogin: null,
-  permissions: [],
-  provinces: [],
   createdAt: new Date(),
   updatedAt: new Date(),
 };

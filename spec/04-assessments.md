@@ -257,7 +257,7 @@ There is no `status` field in the request body — `UpdateScoreDto` doesn't defi
 This is a single question object in the same shape as one entry of `GET /assessments/:id`'s `questions` array — not `{ id, assessmentId, ... }`.
 
 **Errors**
-- `422 VALID_001` — `rawScore` outside 0–4 (rejected by class-validator before reaching the service; the catalog defines `ASSESS_006`/`SCORE_OUT_OF_RANGE` for this but it is never actually thrown)
+- `422 VALID_002` — `rawScore` outside 0–4 (rejected by class-validator before reaching the service; the catalog defines `ASSESS_006`/`SCORE_OUT_OF_RANGE` for this but it is never actually thrown)
 - `400 ASSESS_004` — Cannot edit a submitted assessment
 - `404 ASSESS_007` — Question not found
 - `404 ASSESS_001` — Assessment not found
@@ -340,8 +340,8 @@ There is no `description` field — the `Evidence` model has no such column and 
 
 **Errors**
 - `400 ASSESS_003` — The question hasn't been scored yet (evidence requires an existing `Score` row for that question)
-- `413 FILE_002` — File exceeds 10 MB
-- `422 FILE_001` — Type not in jpeg/png/webp/pdf/xlsx
+- `400 FILE_002` — File exceeds 10 MB (`BadRequestException` from the `ParseFilePipe`, not 413)
+- `400 FILE_001` — Type not in jpeg/png/webp/pdf/xlsx (also 400, not 422)
 
 ---
 

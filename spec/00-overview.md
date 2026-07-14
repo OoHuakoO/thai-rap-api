@@ -168,6 +168,7 @@ Codes come from `ERROR_CODES` in `src/common/constants/error-codes.const.ts`. Co
 | `USER_002` | 409 | Email already exists |
 | `STORE_001` | 404 | Store does not exist |
 | `STORE_003` | 400 | `province` not in the `GET /provinces` lookup table |
+| `STORE_004` | 404 | Store document does not exist (or belongs to another store) |
 | `ASSESS_001` | 404 | Assessment does not exist |
 | `ASSESS_002` | 409 | Duplicate (storeId, round) |
 | `ASSESS_003` | 400 | Assessment not in a state that allows this action |
@@ -175,11 +176,12 @@ Codes come from `ERROR_CODES` in `src/common/constants/error-codes.const.ts`. Co
 | `ASSESS_005` | 400 | Not all 50 questions scored before submit |
 | `ASSESS_007` | 404 | Question ID invalid |
 | `PERM_001` | 403 | Role/ownership not permitted |
-| `FILE_001` | 422 | Invalid file type |
-| `FILE_002` | 413 | File exceeds 10 MB |
+| `FILE_001` | 400 | Invalid file type (thrown as `BadRequestException` from the upload `ParseFilePipe`) |
+| `FILE_002` | 400 | File exceeds 10 MB (also `BadRequestException`, not 413) |
 | `FILE_003` | 404 | Evidence file not found |
-| `VALID_001` | 400/422 | class-validator DTO validation failed (also the generic fallback for 400/422 without a mapped code) |
+| `VALID_001` | 400 | Generic bad request (default `BadRequestException` code) |
+| `VALID_002` | 422 | class-validator DTO validation failed (`ValidationAppException`, includes `details` array) |
 | `DB_001`/`DB_002`/`DB_003`/`DB_004`/`DB_005`/`DB_999` | 409/404/400/400/400/500 | Raw Prisma error passthrough (`P2002`/`P2025`/`P2003`/`P2000`/`P2014`/other) |
 | `SYS_001` | 500 | Unhandled/unexpected error |
 
-`ASSESS_006` (`SCORE_OUT_OF_RANGE`) is defined in the catalog but never thrown — out-of-range scores are rejected by class-validator (`@Min(0)`/`@Max(4)`) and surface as `VALID_001` instead. `AUTH_002`/`AUTH_003` are defined but unused (no code path currently throws them).
+`ASSESS_006` (`SCORE_OUT_OF_RANGE`) is defined in the catalog but never thrown — out-of-range scores are rejected by class-validator (`@Min(0)`/`@Max(4)`) and surface as `VALID_002` instead. `AUTH_002`/`AUTH_003` are defined but unused (no code path currently throws them).

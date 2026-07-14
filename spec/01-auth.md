@@ -54,7 +54,7 @@ Register new user. No `phone` field. `role` accepts any `Role` **except `ADMIN`*
 
 **Errors**
 - `409 USER_002` — Email already exists
-- `422 VALID_001` — `role` is `ADMIN`, or other validation failure
+- `422 VALID_002` — `role` is `ADMIN`, or other validation failure
 
 ---
 
