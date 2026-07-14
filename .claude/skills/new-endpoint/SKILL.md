@@ -1,14 +1,16 @@
-# Skill: new-endpoint
+---
+name: new-endpoint
+description: Add a new endpoint to an existing module (controller route, service method, repository query, DTO) following THAI-RAP project conventions. Use when adding a route to an existing module under src/modules/.
+---
+
+# new-endpoint
 
 Add a new endpoint to an existing module following all project conventions.
-
-## Trigger
-`/new-endpoint`
 
 ## Instructions
 
 Ask the user for:
-1. Which module? (e.g. `auth`, `stores`, `assessments`)
+1. Which module? (e.g. `auth`, `store`, `assessment`)
 2. HTTP method + path? (e.g. `GET /stores/:id/summary`)
 3. Is it public or JWT-protected?
 4. What does it do? (brief description)

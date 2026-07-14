@@ -1,9 +1,15 @@
-# Skill: score-analysis
+---
+name: score-analysis
+description: Implement assessment scoring, red flag detection, zone calculation, round comparison, and IRS ranking for THAI-RAP. Use when implementing or changing scoring/red-flag/ranking logic in AssessmentService or RankingService.
+---
+
+# score-analysis
 
 Implement assessment scoring, red flag detection, and comparison logic for this project.
 
-## Trigger
-`/score-analysis`
+> **Canonical formulas live in `.claude/rules/project-conventions.md`**
+> (§Score Calculation, §Red Flag Detection, §Ranking). If this file and the
+> rule ever disagree, the rule wins — and update both in the same commit.
 
 ## Context
 
@@ -11,7 +17,7 @@ Scores live in the `Score` table (50 rows per assessment). Each score links to a
 
 ## Instructions
 
-When asked to implement scoring, produce the following in `src/modules/assessments/assessment.service.ts`:
+When asked to implement scoring, produce the following in `src/modules/assessment/assessment.service.ts`:
 
 ---
 
@@ -55,7 +61,7 @@ private getZone(score: number): string {
 
 ### 4. Detect Red Flags
 
-Run inside the submit transaction. Returns array of `Prisma.RedFlagCreateManyInput`.
+Run inside the submit transaction. Returns array of `Prisma.RedFlagCreateManyInput`. Trigger conditions per rule §Red Flag Detection.
 
 ```ts
 private detectRedFlags(
@@ -166,7 +172,7 @@ async getComparison(storeId: string) {
 
 ## Incubation Readiness Score (Ranking)
 
-Place in `RankingService`:
+Place in `RankingService`. Weights per rule §Ranking.
 
 ```ts
 calcIRS(params: {

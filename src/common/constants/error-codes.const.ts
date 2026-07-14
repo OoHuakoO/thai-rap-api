@@ -38,7 +38,7 @@ export const ERROR_CODES = {
   // Validation
   VALID: {
     BAD_REQUEST: 'VALID_001',
-    VALIDATION_FAILED: 'VALID_001',
+    VALIDATION_FAILED: 'VALID_002',
   },
 
   // Permission

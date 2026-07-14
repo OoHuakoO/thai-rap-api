@@ -371,7 +371,6 @@ No explanatory comments. Add a comment only when the WHY is non-obvious (hidden 
 ---
 
 ## Testing
-- Unit tests: `*.service.spec.ts` only. Mock the repository.
-- Integration tests: `test/*.e2e-spec.ts`. Use test DB (separate `.env.test`).
-- Do not mock `PrismaService` in e2e tests — use a real test database.
+- Unit tests only: `*.service.spec.ts`. Mock the repository — never `PrismaService`.
+- No e2e/integration tests in this project.
 - Each service method must have: happy path, not-found case, forbidden case, conflict case.

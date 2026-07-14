@@ -1,9 +1,11 @@
-# Skill: prisma-migrate
+---
+name: prisma-migrate
+description: Guide safe Prisma schema changes — editing schema.prisma, generating migrations, seeding, and production deploy rules. Use when adding/changing models, fields, or indexes in the database schema.
+---
+
+# prisma-migrate
 
 Guide through safe Prisma schema changes for this project.
-
-## Trigger
-`/prisma-migrate`
 
 ## Instructions
 

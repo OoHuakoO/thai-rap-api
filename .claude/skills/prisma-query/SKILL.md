@@ -1,9 +1,11 @@
-# Skill: prisma-query
+---
+name: prisma-query
+description: Write optimized Prisma queries — enforce select-only fields, no N+1, pagination via Promise.all, proper transaction use. Use when writing or reviewing repository queries.
+---
+
+# prisma-query
 
 Help write optimized Prisma queries for this project. Enforce select-only, no N+1, proper transaction use.
-
-## Trigger
-`/prisma-query`
 
 ## Instructions
 
@@ -38,7 +40,7 @@ If the query filters on a non-primary/non-unique field used often, note which fi
 ## Example Output Format
 
 ```ts
-// stores.repository.ts
+// store.repository.ts
 
 async findAll(params: {
   page: number;

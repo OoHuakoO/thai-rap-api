@@ -1,9 +1,11 @@
-# Skill: new-module
+---
+name: new-module
+description: Scaffold a complete NestJS feature module (repository, service, controller, DTOs, module registration) following THAI-RAP project conventions. Use when adding a new feature domain under src/modules/.
+---
+
+# new-module
 
 Scaffold a complete NestJS feature module for this project following all project conventions.
-
-## Trigger
-`/new-module <module-name>`
 
 ## Instructions
 
