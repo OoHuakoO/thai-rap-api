@@ -24,7 +24,7 @@ export class JwtAuthGuard extends AuthGuard('jwt-access') {
     if (err || !user) {
       throw new UnauthorizedException(
         ERROR_CODES.AUTH.UNAUTHORIZED,
-        'Invalid or expired access token',
+        'access token ไม่ถูกต้องหรือหมดอายุ',
       );
     }
     return user;

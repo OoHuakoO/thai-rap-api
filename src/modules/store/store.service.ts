@@ -48,7 +48,7 @@ export class StoreService {
   // can open — other staff roles never see this aggregate on the stores page.
   async getStats(user: JwtPayload): Promise<StoreStats> {
     if (user.role !== Role.ADMIN && user.role !== Role.ENTREPRENEUR) {
-      throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'Access denied');
+      throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง');
     }
     const [total, t0CompletedCount, t1CompletedCount, passedCount, byProvince, storeTypes] =
       await Promise.all([
@@ -74,7 +74,7 @@ export class StoreService {
   async findOne(id: string, user: JwtPayload): Promise<StoreResult> {
     const store = await this.getStoreOrThrow(id);
     if (user.role === Role.ENTREPRENEUR && store.ownerId !== user.sub) {
-      throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'Access denied');
+      throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง');
     }
     const latestMap = await this.storeRepo.findLatestAssessments([id]);
     return this.toResult(store, store.documents, latestMap.get(id));
@@ -84,7 +84,7 @@ export class StoreService {
     if (user.role !== Role.ADMIN && user.role !== Role.ENTREPRENEUR) {
       throw new ForbiddenException(
         ERROR_CODES.PERM.FORBIDDEN,
-        'Only admins or entrepreneurs can create a store',
+        'เฉพาะ admin หรือ entrepreneur เท่านั้นที่สร้างร้านค้าได้',
       );
     }
     await this.assertValidProvince(dto.province);
@@ -165,7 +165,7 @@ export class StoreService {
 
     const doc = await this.storeRepo.findDocumentById(documentId);
     if (!doc || doc.storeId !== id) {
-      throw new NotFoundException(ERROR_CODES.STORE.DOCUMENT_NOT_FOUND, 'Document not found');
+      throw new NotFoundException(ERROR_CODES.STORE.DOCUMENT_NOT_FOUND, 'ไม่พบเอกสาร');
     }
     await this.storeRepo.removeDocument(documentId);
     await deleteLocalFile(doc.url);
@@ -251,7 +251,7 @@ export class StoreService {
   private async removePhotoAndFile(id: string, field: PhotoField, url: string): Promise<string[]> {
     const { photos, removed } = await this.storeRepo.removePhoto(id, field, url);
     if (!removed) {
-      throw new NotFoundException(ERROR_CODES.STORE.PHOTO_NOT_FOUND, 'Photo not found');
+      throw new NotFoundException(ERROR_CODES.STORE.PHOTO_NOT_FOUND, 'ไม่พบรูปภาพ');
     }
     await deleteLocalFile(url);
     return photos;
@@ -262,7 +262,7 @@ export class StoreService {
     if (!owner || owner.role !== Role.ENTREPRENEUR) {
       throw new BadRequestException(
         ERROR_CODES.STORE.INVALID_OWNER,
-        'ownerId must reference an existing entrepreneur user',
+        'ownerId ต้องอ้างอิงถึงผู้ใช้ entrepreneur ที่มีอยู่จริง',
       );
     }
   }
@@ -271,7 +271,7 @@ export class StoreService {
     if (min !== null && max !== null && max < min) {
       throw new BadRequestException(
         ERROR_CODES.STORE.INVALID_REVENUE_RANGE,
-        'avgRevenueMax must be greater than or equal to avgRevenueMin',
+        'avgRevenueMax ต้องมากกว่าหรือเท่ากับ avgRevenueMin',
       );
     }
   }
@@ -281,14 +281,14 @@ export class StoreService {
     if (!isValid) {
       throw new BadRequestException(
         ERROR_CODES.STORE.INVALID_PROVINCE,
-        `"${province}" is not a valid province`,
+        `"${province}" ไม่ใช่จังหวัดที่ถูกต้อง`,
       );
     }
   }
 
   private async getStoreOrThrow(id: string): Promise<Store & { documents: StoreDocument[] }> {
     const store = await this.storeRepo.findById(id);
-    if (!store) throw new NotFoundException(ERROR_CODES.STORE.NOT_FOUND, 'Store not found');
+    if (!store) throw new NotFoundException(ERROR_CODES.STORE.NOT_FOUND, 'ไม่พบร้านค้า');
     return store;
   }
 
@@ -297,14 +297,14 @@ export class StoreService {
   private assertCanManage(user: JwtPayload, store: Store): void {
     if (user.role === Role.ADMIN) return;
     if (user.role === Role.ENTREPRENEUR && store.ownerId === user.sub) return;
-    throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'Access denied');
+    throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง');
   }
 
   private assertIsAdmin(user: JwtPayload): void {
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException(
         ERROR_CODES.PERM.FORBIDDEN,
-        'Only admins can perform this action',
+        'เฉพาะ admin เท่านั้นที่ทำรายการนี้ได้',
       );
     }
   }

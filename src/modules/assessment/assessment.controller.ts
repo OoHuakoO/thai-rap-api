@@ -100,11 +100,11 @@ export class AssessmentController {
           error.toLowerCase().includes('size')
             ? new BadRequestException(
                 ERROR_CODES.FILE.TOO_LARGE,
-                `File exceeds the ${FILE_MAX_SIZE_MB} MB limit`,
+                `ไฟล์มีขนาดเกิน ${FILE_MAX_SIZE_MB} MB`,
               )
             : new BadRequestException(
                 ERROR_CODES.FILE.INVALID_TYPE,
-                'Only jpeg, png, webp, pdf, or xlsx files are allowed',
+                'อนุญาตเฉพาะไฟล์ jpeg, png, webp, pdf หรือ xlsx เท่านั้น',
               ),
       }),
     )

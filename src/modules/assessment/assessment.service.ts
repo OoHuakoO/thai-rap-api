@@ -83,8 +83,7 @@ export class AssessmentService {
 
   async findOne(id: string): Promise<AssessmentResult> {
     const assessment = await this.assessmentRepo.findDetailById(id);
-    if (!assessment)
-      throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'Assessment not found');
+    if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
     return this.toResult(assessment);
   }
 
@@ -96,7 +95,7 @@ export class AssessmentService {
     if (existing) {
       throw new ConflictException(
         ERROR_CODES.ASSESS.DUPLICATE,
-        `An assessment for round ${dto.round} already exists for this store`,
+        `มีการประเมินรอบ ${dto.round} สำหรับร้านนี้อยู่แล้ว`,
       );
     }
 
@@ -119,7 +118,7 @@ export class AssessmentService {
 
     const question = await this.dimensionRepo.findQuestionById(questionId);
     if (!question) {
-      throw new NotFoundException(ERROR_CODES.ASSESS.QUESTION_NOT_FOUND, 'Question not found');
+      throw new NotFoundException(ERROR_CODES.ASSESS.QUESTION_NOT_FOUND, 'ไม่พบคำถาม');
     }
 
     const score = await this.assessmentRepo.upsertScore(assessmentId, questionId, dto);
@@ -149,7 +148,7 @@ export class AssessmentService {
     if (!score) {
       throw new BadRequestException(
         ERROR_CODES.ASSESS.INVALID_STATE,
-        'Score the question before attaching evidence',
+        'ต้องให้คะแนนคำถามนี้ก่อนแนบหลักฐาน',
       );
     }
 
@@ -177,7 +176,7 @@ export class AssessmentService {
 
     const evidence = await this.assessmentRepo.findEvidenceById(evidenceId);
     if (!evidence || evidence.score.assessmentId !== assessmentId) {
-      throw new NotFoundException(ERROR_CODES.FILE.NOT_FOUND, 'Evidence file not found');
+      throw new NotFoundException(ERROR_CODES.FILE.NOT_FOUND, 'ไม่พบไฟล์หลักฐาน');
     }
 
     await this.assessmentRepo.removeEvidence(evidenceId);
@@ -199,7 +198,7 @@ export class AssessmentService {
       if (!validQuestionIds.has(item.questionId)) {
         throw new NotFoundException(
           ERROR_CODES.ASSESS.QUESTION_NOT_FOUND,
-          `Question ${item.questionId} not found`,
+          `ไม่พบคำถามหมายเลข ${item.questionId}`,
         );
       }
     }
@@ -224,20 +223,16 @@ export class AssessmentService {
   async submit(assessmentId: string, user: JwtPayload): Promise<AssessmentResult> {
     this.assertCanWrite(user);
     const assessment = await this.assessmentRepo.findDetailById(assessmentId);
-    if (!assessment)
-      throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'Assessment not found');
+    if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
     if (assessment.status === 'SUBMITTED') {
-      throw new BadRequestException(
-        ERROR_CODES.ASSESS.SUBMITTED,
-        'Assessment has already been submitted',
-      );
+      throw new BadRequestException(ERROR_CODES.ASSESS.SUBMITTED, 'การประเมินนี้ถูกส่งไปแล้ว');
     }
 
     const scoredEntries = assessment.scores.filter((s) => s.rawScore !== null);
     if (scoredEntries.length < TOTAL_QUESTIONS) {
       throw new BadRequestException(
         ERROR_CODES.ASSESS.NOT_ALL_SCORED,
-        `All ${TOTAL_QUESTIONS} questions must be scored before submitting (${scoredEntries.length}/${TOTAL_QUESTIONS})`,
+        `ต้องให้คะแนนครบทั้ง ${TOTAL_QUESTIONS} ข้อก่อนส่ง (${scoredEntries.length}/${TOTAL_QUESTIONS})`,
       );
     }
 
@@ -259,12 +254,11 @@ export class AssessmentService {
   async remove(id: string, user: JwtPayload): Promise<void> {
     this.assertCanWrite(user);
     const assessment = await this.assessmentRepo.findDetailById(id);
-    if (!assessment)
-      throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'Assessment not found');
+    if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
     if (assessment.status !== 'DRAFT') {
       throw new BadRequestException(
         ERROR_CODES.ASSESS.INVALID_STATE,
-        'Only draft assessments can be deleted',
+        'ลบได้เฉพาะการประเมินที่ยังเป็นแบบร่างเท่านั้น',
       );
     }
     await this.assessmentRepo.remove(id);
@@ -323,12 +317,11 @@ export class AssessmentService {
 
   private async assertDraftOrInProgress(assessmentId: string): Promise<void> {
     const assessment = await this.assessmentRepo.findDetailById(assessmentId);
-    if (!assessment)
-      throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'Assessment not found');
+    if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
     if (assessment.status === 'SUBMITTED') {
       throw new BadRequestException(
         ERROR_CODES.ASSESS.SUBMITTED,
-        'Cannot modify a submitted assessment',
+        'ไม่สามารถแก้ไขการประเมินที่ส่งไปแล้ว',
       );
     }
   }
@@ -339,7 +332,7 @@ export class AssessmentService {
     if (user.role !== Role.ADMIN && user.role !== Role.ASSESSOR) {
       throw new ForbiddenException(
         ERROR_CODES.PERM.FORBIDDEN,
-        'Only admins or assessors can manage assessments',
+        'เฉพาะ admin หรือ assessor เท่านั้นที่จัดการการประเมินได้',
       );
     }
   }

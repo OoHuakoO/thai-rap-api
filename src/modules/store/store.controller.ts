@@ -32,11 +32,8 @@ import { QueryStoreDto } from './dto/query-store.dto';
 
 function fileExceptionFactory(error: string) {
   return error.toLowerCase().includes('size')
-    ? new BadRequestException(
-        ERROR_CODES.FILE.TOO_LARGE,
-        `File exceeds the ${FILE_MAX_SIZE_MB} MB limit`,
-      )
-    : new BadRequestException(ERROR_CODES.FILE.INVALID_TYPE, 'File type is not allowed');
+    ? new BadRequestException(ERROR_CODES.FILE.TOO_LARGE, `ไฟล์มีขนาดเกิน ${FILE_MAX_SIZE_MB} MB`)
+    : new BadRequestException(ERROR_CODES.FILE.INVALID_TYPE, 'ประเภทไฟล์นี้ไม่อนุญาต');
 }
 
 @ApiTags('Stores')

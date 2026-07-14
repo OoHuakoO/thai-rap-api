@@ -21,27 +21,27 @@ const PRISMA_ERROR_MAP: Record<string, PrismaErrorMapping> = {
   P2002: {
     code: ERROR_CODES.DB.DUPLICATE,
     status: HttpStatus.CONFLICT,
-    message: 'Unique constraint violation',
+    message: 'ข้อมูลซ้ำกับที่มีอยู่แล้ว',
   },
   P2025: {
     code: ERROR_CODES.DB.NOT_FOUND,
     status: HttpStatus.NOT_FOUND,
-    message: 'Record not found',
+    message: 'ไม่พบข้อมูล',
   },
   P2003: {
     code: ERROR_CODES.DB.FOREIGN_KEY,
     status: HttpStatus.BAD_REQUEST,
-    message: 'Foreign key constraint violation',
+    message: 'ข้อมูลอ้างอิงไม่ถูกต้อง',
   },
   P2000: {
     code: ERROR_CODES.DB.INVALID_DATA,
     status: HttpStatus.BAD_REQUEST,
-    message: 'Invalid data',
+    message: 'ข้อมูลไม่ถูกต้อง',
   },
   P2014: {
     code: ERROR_CODES.DB.NULL_CONSTRAINT,
     status: HttpStatus.BAD_REQUEST,
-    message: 'Required relation violation',
+    message: 'ข้อมูลที่จำเป็นไม่ครบถ้วน',
   },
 };
 
@@ -87,7 +87,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           success: false,
           error: {
             code: ERROR_CODES.DB.INVALID_DATA,
-            message: 'Invalid data provided to database',
+            message: 'ข้อมูลที่ส่งไปยังฐานข้อมูลไม่ถูกต้อง',
           },
         },
       };
@@ -102,7 +102,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       payload: {
         success: false,
-        error: { code: ERROR_CODES.SYS.UNEXPECTED, message: 'An unexpected error occurred' },
+        error: { code: ERROR_CODES.SYS.UNEXPECTED, message: 'เกิดข้อผิดพลาดที่ไม่คาดคิด' },
       },
     };
   }
@@ -142,7 +142,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           success: false,
           error: {
             code: ERROR_CODES.VALID.VALIDATION_FAILED,
-            message: 'Validation failed',
+            message: 'ข้อมูลไม่ผ่านการตรวจสอบ',
             details: messages.map((msg: string) => ({
               field: msg.split(' ')[0] ?? 'unknown',
               message: msg,
@@ -185,7 +185,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status: HttpStatus.INTERNAL_SERVER_ERROR,
       payload: {
         success: false,
-        error: { code: ERROR_CODES.DB.GENERIC, message: 'Database error' },
+        error: { code: ERROR_CODES.DB.GENERIC, message: 'เกิดข้อผิดพลาดฐานข้อมูล' },
       },
     };
   }

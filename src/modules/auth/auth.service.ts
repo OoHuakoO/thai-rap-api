@@ -37,7 +37,7 @@ export class AuthService {
   async register(dto: RegisterDto): Promise<AuthResult> {
     const existing = await this.authRepository.findUserByEmail(dto.email);
     if (existing) {
-      throw new ConflictException(ERROR_CODES.USER.EMAIL_EXISTS, 'Email already exists');
+      throw new ConflictException(ERROR_CODES.USER.EMAIL_EXISTS, 'อีเมลนี้ถูกใช้งานแล้ว');
     }
 
     const hashedPassword = await hashPassword(dto.password);
@@ -62,23 +62,26 @@ export class AuthService {
   async login(dto: LoginDto): Promise<AuthResult> {
     const user = await this.authRepository.findUserByEmail(dto.email);
     if (!user) {
-      throw new UnauthorizedException(ERROR_CODES.AUTH.INVALID_CREDENTIALS, 'Invalid credentials');
+      throw new UnauthorizedException(
+        ERROR_CODES.AUTH.INVALID_CREDENTIALS,
+        'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
+      );
     }
 
     const isPasswordValid = await comparePassword(dto.password, user.password);
     if (!isPasswordValid) {
-      throw new UnauthorizedException(ERROR_CODES.AUTH.INVALID_CREDENTIALS, 'Invalid credentials');
+      throw new UnauthorizedException(
+        ERROR_CODES.AUTH.INVALID_CREDENTIALS,
+        'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
+      );
     }
 
     if (user.status === UserStatus.SUSPENDED) {
-      throw new ForbiddenException(ERROR_CODES.AUTH.ACCOUNT_SUSPENDED, 'Account is suspended');
+      throw new ForbiddenException(ERROR_CODES.AUTH.ACCOUNT_SUSPENDED, 'บัญชีถูกระงับการใช้งาน');
     }
 
     if (user.status === UserStatus.PENDING) {
-      throw new ForbiddenException(
-        ERROR_CODES.AUTH.ACCOUNT_PENDING,
-        'Account is pending activation',
-      );
+      throw new ForbiddenException(ERROR_CODES.AUTH.ACCOUNT_PENDING, 'บัญชีกำลังรอการเปิดใช้งาน');
     }
 
     const tokens = await this.issueTokens(user.id, user.email, user.role);
@@ -95,21 +98,21 @@ export class AuthService {
     if (!tokenRecord) {
       throw new UnauthorizedException(
         ERROR_CODES.AUTH.REFRESH_TOKEN_INVALID,
-        'Refresh token not found',
+        'ไม่พบ refresh token',
       );
     }
 
     if (tokenRecord.revokedAt) {
       throw new UnauthorizedException(
         ERROR_CODES.AUTH.REFRESH_TOKEN_INVALID,
-        'Refresh token has been revoked',
+        'refresh token ถูกยกเลิกไปแล้ว',
       );
     }
 
     if (new Date() > tokenRecord.expiresAt) {
       throw new UnauthorizedException(
         ERROR_CODES.AUTH.REFRESH_TOKEN_INVALID,
-        'Refresh token has expired',
+        'refresh token หมดอายุแล้ว',
       );
     }
 
@@ -117,24 +120,21 @@ export class AuthService {
     if (!isValid) {
       throw new UnauthorizedException(
         ERROR_CODES.AUTH.REFRESH_TOKEN_INVALID,
-        'Refresh token is invalid',
+        'refresh token ไม่ถูกต้อง',
       );
     }
 
     const user = await this.authRepository.findUserById(userId);
     if (!user) {
-      throw new NotFoundException(ERROR_CODES.USER.NOT_FOUND, 'User not found');
+      throw new NotFoundException(ERROR_CODES.USER.NOT_FOUND, 'ไม่พบผู้ใช้งาน');
     }
 
     if (user.status === UserStatus.SUSPENDED) {
-      throw new ForbiddenException(ERROR_CODES.AUTH.ACCOUNT_SUSPENDED, 'Account is suspended');
+      throw new ForbiddenException(ERROR_CODES.AUTH.ACCOUNT_SUSPENDED, 'บัญชีถูกระงับการใช้งาน');
     }
 
     if (user.status === UserStatus.PENDING) {
-      throw new ForbiddenException(
-        ERROR_CODES.AUTH.ACCOUNT_PENDING,
-        'Account is pending activation',
-      );
+      throw new ForbiddenException(ERROR_CODES.AUTH.ACCOUNT_PENDING, 'บัญชีกำลังรอการเปิดใช้งาน');
     }
 
     const tokens = await this.issueTokens(user.id, user.email, user.role);
@@ -153,7 +153,7 @@ export class AuthService {
   async getMe(userId: string): Promise<Omit<User, 'password'>> {
     const user = await this.authRepository.findUserById(userId);
     if (!user) {
-      throw new NotFoundException(ERROR_CODES.USER.NOT_FOUND, 'User not found');
+      throw new NotFoundException(ERROR_CODES.USER.NOT_FOUND, 'ไม่พบผู้ใช้งาน');
     }
     return user;
   }

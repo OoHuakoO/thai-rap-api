@@ -23,7 +23,7 @@ export async function saveLocalFile(
 ): Promise<SavedFile> {
   const ext = extname(originalName).toLowerCase();
   if (!allowedExtensions.includes(ext)) {
-    throw new BadRequestException(ERROR_CODES.FILE.INVALID_TYPE, 'File extension is not allowed');
+    throw new BadRequestException(ERROR_CODES.FILE.INVALID_TYPE, 'นามสกุลไฟล์นี้ไม่อนุญาต');
   }
   const dir = join(UPLOADS_ROOT, subdir);
   await fs.mkdir(dir, { recursive: true });
