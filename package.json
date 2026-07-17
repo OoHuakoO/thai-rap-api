@@ -21,6 +21,8 @@
     "db:migrate:prod": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:seed": "ts-node prisma/seed.ts",
+    "db:backup": "ts-node prisma/backup-test-data.ts",
+    "db:reset-test-data": "ts-node prisma/reset-test-data.ts",
     "postinstall": "prisma generate",
     "prepare": "husky"
   },

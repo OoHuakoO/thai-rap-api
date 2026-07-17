@@ -1,5 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import type { Assessment, Evidence, Prisma, RedFlag, Round, Score } from '@prisma/client';
+import {
+  StoreStatus,
+  type Assessment,
+  type Evidence,
+  type Prisma,
+  type RedFlag,
+  type Round,
+  type Score,
+} from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 import type { QueryAssessmentDto } from './dto/query-assessment.dto';
 
@@ -7,6 +15,22 @@ const assessmentDetailInclude = {
   scores: { include: { question: { include: { dimension: true } }, evidences: true } },
   redFlags: true,
 } satisfies Prisma.AssessmentInclude;
+
+// Only T0/T1 map to a store status by round completion — later milestones
+// (Field Audit, IDP, final follow-up) are separate program stages, not
+// per-round labels, and are set elsewhere (manual status update / future
+// ranking-finalize flow), not here.
+const ROUND_COMPLETION_STATUS: Partial<Record<Round, StoreStatus>> = {
+  T0: StoreStatus.T0_COMPLETED,
+  T1: StoreStatus.T1_COMPLETED,
+};
+
+// Guards against clobbering a status an admin has already advanced manually
+// (e.g. past PITCHING_COMPLETED/SELECTED) — only move forward, never back.
+const STORE_STATUS_ADVANCE_FROM: Partial<Record<Round, StoreStatus[]>> = {
+  T0: [StoreStatus.REGISTERED],
+  T1: [StoreStatus.REGISTERED, StoreStatus.T0_COMPLETED, StoreStatus.CAMP_COMPLETED],
+};
 
 export type AssessmentDetail = Prisma.AssessmentGetPayload<{
   include: typeof assessmentDetailInclude;
@@ -102,6 +126,8 @@ export class AssessmentRepository {
 
   async submitAssessment(
     id: string,
+    storeId: string,
+    round: Round,
     totalScore: number,
     redFlags: Array<{
       type: RedFlag['type'];
@@ -123,6 +149,18 @@ export class AssessmentRepository {
             triggerQuestions: flag.triggerQuestions,
           })),
         });
+      }
+
+      const nextStatus = ROUND_COMPLETION_STATUS[round];
+      const advanceFrom = STORE_STATUS_ADVANCE_FROM[round];
+      if (nextStatus && advanceFrom) {
+        const store = await tx.store.findUnique({
+          where: { id: storeId },
+          select: { status: true },
+        });
+        if (store && advanceFrom.includes(store.status)) {
+          await tx.store.update({ where: { id: storeId }, data: { status: nextStatus } });
+        }
       }
     });
     const updated = await this.findDetailById(id);

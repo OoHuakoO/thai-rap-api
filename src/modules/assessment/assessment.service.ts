@@ -263,7 +263,13 @@ export class AssessmentService {
     const totalScore = computeTotalScore(dimensionScores, dimensions);
     const redFlags = detectRedFlags(scoredQuestions);
 
-    const updated = await this.assessmentRepo.submitAssessment(assessmentId, totalScore, redFlags);
+    const updated = await this.assessmentRepo.submitAssessment(
+      assessmentId,
+      assessment.storeId,
+      assessment.round,
+      totalScore,
+      redFlags,
+    );
     return this.toResult(updated);
   }
 

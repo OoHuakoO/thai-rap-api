@@ -30,6 +30,7 @@ Thumbs.db
 
 # Prisma
 prisma/migrations/*.sql.bak
+prisma/backups/
 
 # TypeScript
 *.tsbuildinfo
