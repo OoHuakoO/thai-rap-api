@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Role, type Assessment, type Evidence } from '@prisma/client';
+import { AssessmentStatus, Role, Round, type Assessment, type Evidence } from '@prisma/client';
 import {
   NotFoundException,
   ConflictException,
@@ -27,6 +27,10 @@ import {
 } from './assessment-scoring.util';
 
 const TOTAL_QUESTIONS = 50;
+
+// Mirrors LOCKED_UNTIL_T1 in the web's round-pills.tsx — the UI lock is UX only,
+// this is the real gate.
+const ROUNDS_LOCKED_UNTIL_T1: Round[] = [Round.T2, Round.T3, Round.T4];
 
 export interface EvidenceResult {
   id: string;
@@ -97,6 +101,18 @@ export class AssessmentService {
         ERROR_CODES.ASSESS.DUPLICATE,
         `มีการประเมินรอบ ${dto.round} สำหรับร้านนี้อยู่แล้ว`,
       );
+    }
+
+    if (ROUNDS_LOCKED_UNTIL_T1.includes(dto.round)) {
+      const t1 = await this.assessmentRepo.findByStoreAndRound(dto.storeId, Round.T1);
+      const t1Completed =
+        t1?.status === AssessmentStatus.SUBMITTED || t1?.status === AssessmentStatus.APPROVED;
+      if (!t1Completed) {
+        throw new BadRequestException(
+          ERROR_CODES.ASSESS.INVALID_STATE,
+          `ต้องส่งผลประเมินรอบ T1 ก่อน จึงจะเริ่มประเมินรอบ ${dto.round} ได้`,
+        );
+      }
     }
 
     const created = await this.assessmentRepo.create({

@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `Question` MODIFY `maxScore` INTEGER NOT NULL DEFAULT 4;
