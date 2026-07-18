@@ -36,6 +36,15 @@ export type AssessmentDetail = Prisma.AssessmentGetPayload<{
   include: typeof assessmentDetailInclude;
 }>;
 
+const rankingSelect = {
+  storeId: true,
+  totalScore: true,
+  store: { select: { province: true } },
+  scores: { select: { questionId: true, rawScore: true } },
+} satisfies Prisma.AssessmentSelect;
+
+export type AssessmentForRanking = Prisma.AssessmentGetPayload<{ select: typeof rankingSelect }>;
+
 @Injectable()
 export class AssessmentRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -65,6 +74,13 @@ export class AssessmentRepository {
     return this.prisma.assessment.findUnique({ where: { storeId_round: { storeId, round } } });
   }
 
+  findSubmittedForRanking(round: Round): Promise<AssessmentForRanking[]> {
+    return this.prisma.assessment.findMany({
+      where: { round, status: 'SUBMITTED' },
+      select: rankingSelect,
+    });
+  }
+
   findDetailById(id: string): Promise<AssessmentDetail | null> {
     return this.prisma.assessment.findUnique({
       where: { id },
@@ -78,6 +94,10 @@ export class AssessmentRepository {
 
   remove(id: string): Promise<Assessment> {
     return this.prisma.assessment.delete({ where: { id } });
+  }
+
+  updateNotes(id: string, notes: string | null): Promise<Assessment> {
+    return this.prisma.assessment.update({ where: { id }, data: { notes } });
   }
 
   upsertScore(

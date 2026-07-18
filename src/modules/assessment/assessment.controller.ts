@@ -8,6 +8,7 @@ import {
   Param,
   ParseFilePipe,
   ParseIntPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -30,6 +31,8 @@ import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import { UpdateScoreDto } from './dto/update-score.dto';
 import { BulkScoreDto } from './dto/bulk-score.dto';
 import { QueryAssessmentDto } from './dto/query-assessment.dto';
+import { RankQueryDto } from './dto/rank-query.dto';
+import { UpdateNotesDto } from './dto/update-notes.dto';
 
 @ApiTags('Assessment')
 @ApiBearerAuth()
@@ -41,6 +44,14 @@ export class AssessmentController {
   @ApiOperation({ summary: 'List assessments (filter by storeId, round, status)' })
   findAll(@Query() query: QueryAssessmentDto) {
     return this.assessmentService.findAll(query);
+  }
+
+  @Get('rank')
+  @ApiOperation({
+    summary: 'Get overall/province rank and dimension averages for a store in a round',
+  })
+  getRank(@Query() query: RankQueryDto, @CurrentUser() user: JwtPayload) {
+    return this.assessmentService.getRank(query.storeId, query.round, user);
   }
 
   @Get(':id')
@@ -129,6 +140,16 @@ export class AssessmentController {
   @ApiOperation({ summary: 'Get how many of the 50 questions are scored' })
   getProgress(@Param('id') id: string) {
     return this.assessmentService.getProgress(id);
+  }
+
+  @Patch(':id/notes')
+  @ApiOperation({ summary: 'Update the assessor notes on a draft/in-progress assessment' })
+  updateNotes(
+    @Param('id') id: string,
+    @Body() dto: UpdateNotesDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.assessmentService.updateNotes(id, dto, user);
   }
 
   @Post(':id/submit')

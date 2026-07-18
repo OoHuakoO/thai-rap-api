@@ -18,11 +18,13 @@ import type { CreateAssessmentDto } from './dto/create-assessment.dto';
 import type { UpdateScoreDto } from './dto/update-score.dto';
 import type { BulkScoreDto } from './dto/bulk-score.dto';
 import type { QueryAssessmentDto } from './dto/query-assessment.dto';
+import type { UpdateNotesDto } from './dto/update-notes.dto';
 import {
   computeDimensionScores,
   computeTotalScore,
   detectRedFlags,
   getZone,
+  MAX_SCORE_PER_QUESTION,
   type ScoredQuestion,
 } from './assessment-scoring.util';
 
@@ -61,11 +63,25 @@ export interface AssessmentResult {
   status: AssessmentDetail['status'];
   totalScore: number | null;
   zone: string | null;
+  notes: string | null;
   createdAt: Date;
   updatedAt: Date;
   submittedAt: Date | null;
   questions: AssessmentQuestionResult[];
   redFlags: AssessmentDetail['redFlags'];
+}
+
+export interface DimensionAverageResult {
+  dimensionId: number;
+  avgPct: number;
+}
+
+export interface AssessmentRankResult {
+  overallRank: number | null;
+  overallTotal: number;
+  provinceRank: number | null;
+  provinceTotal: number;
+  dimensionAverages: DimensionAverageResult[];
 }
 
 @Injectable()
@@ -89,6 +105,48 @@ export class AssessmentService {
     const assessment = await this.assessmentRepo.findDetailById(id);
     if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
     return this.toResult(assessment);
+  }
+
+  async getRank(storeId: string, round: Round, user: JwtPayload): Promise<AssessmentRankResult> {
+    const store = await this.storeService.findOne(storeId, user);
+    const submitted = await this.assessmentRepo.findSubmittedForRanking(round);
+
+    const ranked = [...submitted].sort((a, b) => (b.totalScore ?? 0) - (a.totalScore ?? 0));
+    const overallIndex = ranked.findIndex((a) => a.storeId === storeId);
+    const provinceRanked = ranked.filter((a) => a.store.province === store.province);
+    const provinceIndex = provinceRanked.findIndex((a) => a.storeId === storeId);
+
+    const dimensions = await this.dimensionRepo.findAllDimensions();
+    const questions = await this.dimensionRepo.findAllQuestions();
+    const dimensionIdByQuestionId = new Map(questions.map((q) => [q.id, q.dimensionId]));
+
+    const dimensionPctSums = new Map<number, number>(dimensions.map((d) => [d.id, 0]));
+    for (const assessment of submitted) {
+      for (const dimension of dimensions) {
+        const raw = assessment.scores
+          .filter((s) => dimensionIdByQuestionId.get(s.questionId) === dimension.id)
+          .reduce((sum, s) => sum + (s.rawScore ?? 0), 0);
+        const max = dimension.questionCount * MAX_SCORE_PER_QUESTION;
+        const pct = max === 0 ? 0 : (raw / max) * 100;
+        dimensionPctSums.set(dimension.id, (dimensionPctSums.get(dimension.id) ?? 0) + pct);
+      }
+    }
+
+    const dimensionAverages: DimensionAverageResult[] = dimensions.map((dimension) => ({
+      dimensionId: dimension.id,
+      avgPct:
+        submitted.length === 0
+          ? 0
+          : Math.round(((dimensionPctSums.get(dimension.id) ?? 0) / submitted.length) * 10) / 10,
+    }));
+
+    return {
+      overallRank: overallIndex === -1 ? null : overallIndex + 1,
+      overallTotal: ranked.length,
+      provinceRank: provinceIndex === -1 ? null : provinceIndex + 1,
+      provinceTotal: provinceRanked.length,
+      dimensionAverages,
+    };
   }
 
   async create(dto: CreateAssessmentDto, user: JwtPayload): Promise<AssessmentResult> {
@@ -236,6 +294,17 @@ export class AssessmentService {
     return { scored, total: TOTAL_QUESTIONS };
   }
 
+  async updateNotes(
+    assessmentId: string,
+    dto: UpdateNotesDto,
+    user: JwtPayload,
+  ): Promise<AssessmentResult> {
+    this.assertCanWrite(user);
+    await this.assertDraftOrInProgress(assessmentId);
+    await this.assessmentRepo.updateNotes(assessmentId, dto.notes ?? null);
+    return this.findOne(assessmentId);
+  }
+
   async submit(assessmentId: string, user: JwtPayload): Promise<AssessmentResult> {
     this.assertCanWrite(user);
     const assessment = await this.assessmentRepo.findDetailById(assessmentId);
@@ -313,6 +382,7 @@ export class AssessmentService {
       status: assessment.status,
       totalScore: assessment.totalScore,
       zone: assessment.totalScore !== null ? getZone(assessment.totalScore) : null,
+      notes: assessment.notes,
       createdAt: assessment.createdAt,
       updatedAt: assessment.updatedAt,
       submittedAt: assessment.submittedAt,

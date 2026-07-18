@@ -18,7 +18,7 @@ export interface RedFlagCandidate {
   triggerQuestions: number[];
 }
 
-const MAX_SCORE_PER_QUESTION = 4;
+export const MAX_SCORE_PER_QUESTION = 4;
 
 export function computeDimensionScores(
   scores: ScoredQuestion[],
