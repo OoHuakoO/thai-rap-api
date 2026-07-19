@@ -84,6 +84,15 @@ export interface AssessmentRankResult {
   dimensionAverages: DimensionAverageResult[];
 }
 
+export interface AssessmentHistoryItemResult {
+  round: Round;
+  status: AssessmentStatus;
+  totalScore: number | null;
+  assessorName: string;
+  updatedAt: Date;
+  submittedAt: Date | null;
+}
+
 @Injectable()
 export class AssessmentService {
   constructor(
@@ -147,6 +156,19 @@ export class AssessmentService {
       provinceTotal: provinceRanked.length,
       dimensionAverages,
     };
+  }
+
+  async getHistory(storeId: string, user: JwtPayload): Promise<AssessmentHistoryItemResult[]> {
+    await this.storeService.findOne(storeId, user);
+    const rows = await this.assessmentRepo.findHistoryByStore(storeId);
+    return rows.map((row) => ({
+      round: row.round,
+      status: row.status,
+      totalScore: row.totalScore,
+      assessorName: row.assessor.name,
+      updatedAt: row.updatedAt,
+      submittedAt: row.submittedAt,
+    }));
   }
 
   async create(dto: CreateAssessmentDto, user: JwtPayload): Promise<AssessmentResult> {

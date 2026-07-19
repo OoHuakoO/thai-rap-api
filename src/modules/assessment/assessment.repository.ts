@@ -45,6 +45,17 @@ const rankingSelect = {
 
 export type AssessmentForRanking = Prisma.AssessmentGetPayload<{ select: typeof rankingSelect }>;
 
+const historySelect = {
+  round: true,
+  status: true,
+  totalScore: true,
+  updatedAt: true,
+  submittedAt: true,
+  assessor: { select: { name: true } },
+} satisfies Prisma.AssessmentSelect;
+
+export type AssessmentHistoryRow = Prisma.AssessmentGetPayload<{ select: typeof historySelect }>;
+
 @Injectable()
 export class AssessmentRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -72,6 +83,14 @@ export class AssessmentRepository {
 
   findByStoreAndRound(storeId: string, round: Round): Promise<Assessment | null> {
     return this.prisma.assessment.findUnique({ where: { storeId_round: { storeId, round } } });
+  }
+
+  findHistoryByStore(storeId: string): Promise<AssessmentHistoryRow[]> {
+    return this.prisma.assessment.findMany({
+      where: { storeId },
+      select: historySelect,
+      orderBy: { round: 'asc' },
+    });
   }
 
   findSubmittedForRanking(round: Round): Promise<AssessmentForRanking[]> {
