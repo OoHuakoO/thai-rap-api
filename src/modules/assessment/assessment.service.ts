@@ -30,9 +30,17 @@ import {
 
 const TOTAL_QUESTIONS = 50;
 
-// Mirrors LOCKED_UNTIL_T1 in the web's round-pills.tsx — the UI lock is UX only,
-// this is the real gate.
-const ROUNDS_LOCKED_UNTIL_T1: Round[] = [Round.T2, Round.T3, Round.T4];
+// Mirrors REQUIRED_PRIOR_ROUND in the web's utils/round.ts — the UI lock is
+// UX only, this is the real gate. Enforced on every write (create, score,
+// evidence, notes, submit) via assertPriorRoundCompleted, not just create —
+// otherwise a round record that already exists (e.g. seeded/legacy data)
+// could keep being scored and submitted regardless of the prior round.
+const REQUIRED_PRIOR_ROUND: Partial<Record<Round, Round>> = {
+  [Round.T1]: Round.T0,
+  [Round.T2]: Round.T1,
+  [Round.T3]: Round.T1,
+  [Round.T4]: Round.T1,
+};
 
 export interface EvidenceResult {
   id: string;
@@ -130,7 +138,7 @@ export class AssessmentService {
     const dimensionIdByQuestionId = new Map(questions.map((q) => [q.id, q.dimensionId]));
 
     const dimensionPctSums = new Map<number, number>(dimensions.map((d) => [d.id, 0]));
-    for (const assessment of submitted) {
+    for (const assessment of provinceRanked) {
       for (const dimension of dimensions) {
         const raw = assessment.scores
           .filter((s) => dimensionIdByQuestionId.get(s.questionId) === dimension.id)
@@ -144,9 +152,10 @@ export class AssessmentService {
     const dimensionAverages: DimensionAverageResult[] = dimensions.map((dimension) => ({
       dimensionId: dimension.id,
       avgPct:
-        submitted.length === 0
+        provinceRanked.length === 0
           ? 0
-          : Math.round(((dimensionPctSums.get(dimension.id) ?? 0) / submitted.length) * 10) / 10,
+          : Math.round(((dimensionPctSums.get(dimension.id) ?? 0) / provinceRanked.length) * 10) /
+            10,
     }));
 
     return {
@@ -183,17 +192,7 @@ export class AssessmentService {
       );
     }
 
-    if (ROUNDS_LOCKED_UNTIL_T1.includes(dto.round)) {
-      const t1 = await this.assessmentRepo.findByStoreAndRound(dto.storeId, Round.T1);
-      const t1Completed =
-        t1?.status === AssessmentStatus.SUBMITTED || t1?.status === AssessmentStatus.APPROVED;
-      if (!t1Completed) {
-        throw new BadRequestException(
-          ERROR_CODES.ASSESS.INVALID_STATE,
-          `ต้องส่งผลประเมินรอบ T1 ก่อน จึงจะเริ่มประเมินรอบ ${dto.round} ได้`,
-        );
-      }
-    }
+    await this.assertPriorRoundCompleted(dto.storeId, dto.round);
 
     const created = await this.assessmentRepo.create({
       store: { connect: { id: dto.storeId } },
@@ -218,6 +217,7 @@ export class AssessmentService {
     }
 
     const score = await this.assessmentRepo.upsertScore(assessmentId, questionId, dto);
+    await this.assessmentRepo.reassignAssessor(assessmentId, user.sub);
     return {
       questionId: question.id,
       questionNo: question.questionNo,
@@ -334,6 +334,7 @@ export class AssessmentService {
     if (assessment.status === 'SUBMITTED') {
       throw new BadRequestException(ERROR_CODES.ASSESS.SUBMITTED, 'การประเมินนี้ถูกส่งไปแล้ว');
     }
+    await this.assertPriorRoundCompleted(assessment.storeId, assessment.round);
 
     const scoredEntries = assessment.scores.filter((s) => s.rawScore !== null);
     if (scoredEntries.length < TOTAL_QUESTIONS) {
@@ -436,6 +437,22 @@ export class AssessmentService {
       throw new BadRequestException(
         ERROR_CODES.ASSESS.SUBMITTED,
         'ไม่สามารถแก้ไขการประเมินที่ส่งไปแล้ว',
+      );
+    }
+    await this.assertPriorRoundCompleted(assessment.storeId, assessment.round);
+  }
+
+  private async assertPriorRoundCompleted(storeId: string, round: Round): Promise<void> {
+    const requiredPriorRound = REQUIRED_PRIOR_ROUND[round];
+    if (!requiredPriorRound) return;
+
+    const prior = await this.assessmentRepo.findByStoreAndRound(storeId, requiredPriorRound);
+    const priorCompleted =
+      prior?.status === AssessmentStatus.SUBMITTED || prior?.status === AssessmentStatus.APPROVED;
+    if (!priorCompleted) {
+      throw new BadRequestException(
+        ERROR_CODES.ASSESS.INVALID_STATE,
+        `ต้องส่งผลประเมินรอบ ${requiredPriorRound} ก่อน จึงจะเริ่มประเมินรอบ ${round} ได้`,
       );
     }
   }

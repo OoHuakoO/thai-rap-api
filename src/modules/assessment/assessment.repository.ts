@@ -119,6 +119,10 @@ export class AssessmentRepository {
     return this.prisma.assessment.update({ where: { id }, data: { notes } });
   }
 
+  reassignAssessor(id: string, assessorId: string): Promise<Assessment> {
+    return this.prisma.assessment.update({ where: { id }, data: { assessorId } });
+  }
+
   upsertScore(
     assessmentId: string,
     questionId: number,
