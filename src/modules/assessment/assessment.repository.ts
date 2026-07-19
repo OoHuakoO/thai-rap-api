@@ -56,6 +56,15 @@ const historySelect = {
 
 export type AssessmentHistoryRow = Prisma.AssessmentGetPayload<{ select: typeof historySelect }>;
 
+const statusSelect = {
+  id: true,
+  status: true,
+  storeId: true,
+  round: true,
+} satisfies Prisma.AssessmentSelect;
+
+export type AssessmentStatusRow = Prisma.AssessmentGetPayload<{ select: typeof statusSelect }>;
+
 @Injectable()
 export class AssessmentRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -107,6 +116,10 @@ export class AssessmentRepository {
     });
   }
 
+  findStatusById(id: string): Promise<AssessmentStatusRow | null> {
+    return this.prisma.assessment.findUnique({ where: { id }, select: statusSelect });
+  }
+
   create(data: Prisma.AssessmentCreateInput): Promise<Assessment> {
     return this.prisma.assessment.create({ data });
   }
@@ -123,16 +136,37 @@ export class AssessmentRepository {
     return this.prisma.assessment.update({ where: { id }, data: { assessorId } });
   }
 
+  private buildScoreUpsertArgs(
+    assessmentId: string,
+    questionId: number,
+    data: { rawScore: number; note?: string; suggestion?: string },
+  ): Prisma.ScoreUpsertArgs {
+    return {
+      where: { assessmentId_questionId: { assessmentId, questionId } },
+      update: { ...data, displayScore: data.rawScore, status: 'SCORED' },
+      create: { assessmentId, questionId, ...data, displayScore: data.rawScore, status: 'SCORED' },
+    };
+  }
+
   upsertScore(
     assessmentId: string,
     questionId: number,
     data: { rawScore: number; note?: string; suggestion?: string },
   ): Promise<Score> {
-    return this.prisma.score.upsert({
-      where: { assessmentId_questionId: { assessmentId, questionId } },
-      update: { ...data, displayScore: data.rawScore, status: 'SCORED' },
-      create: { assessmentId, questionId, ...data, displayScore: data.rawScore, status: 'SCORED' },
-    });
+    return this.prisma.score.upsert(this.buildScoreUpsertArgs(assessmentId, questionId, data));
+  }
+
+  async bulkUpsertScores(
+    assessmentId: string,
+    assessorId: string,
+    items: Array<{ questionId: number; rawScore: number; note?: string; suggestion?: string }>,
+  ): Promise<void> {
+    await this.prisma.$transaction([
+      ...items.map((item) =>
+        this.prisma.score.upsert(this.buildScoreUpsertArgs(assessmentId, item.questionId, item)),
+      ),
+      this.prisma.assessment.update({ where: { id: assessmentId }, data: { assessorId } }),
+    ]);
   }
 
   countScored(assessmentId: string): Promise<number> {

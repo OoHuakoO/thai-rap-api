@@ -21,7 +21,7 @@ export interface RedFlagCandidate {
 export const MAX_SCORE_PER_QUESTION = 4;
 
 export function computeDimensionScores(
-  scores: ScoredQuestion[],
+  scores: Pick<ScoredQuestion, 'dimensionId' | 'rawScore'>[],
   dimensions: DimensionInfo[],
 ): Map<number, number> {
   const result = new Map<number, number>();

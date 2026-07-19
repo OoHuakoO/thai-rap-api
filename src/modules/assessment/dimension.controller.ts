@@ -1,6 +1,7 @@
 import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DimensionRepository } from './dimension.repository';
+import { QueryQuestionDto } from './dto/query-question.dto';
 
 @ApiTags('Assessment')
 @ApiBearerAuth()
@@ -22,7 +23,7 @@ export class DimensionController {
 
   @Get('questions')
   @ApiOperation({ summary: 'List all 50 questions, optionally filtered by dimension' })
-  findAllQuestions(@Query('dimensionId') dimensionId?: string) {
-    return this.dimensionRepo.findAllQuestions(dimensionId ? Number(dimensionId) : undefined);
+  findAllQuestions(@Query() query: QueryQuestionDto) {
+    return this.dimensionRepo.findAllQuestions(query.dimensionId);
   }
 }

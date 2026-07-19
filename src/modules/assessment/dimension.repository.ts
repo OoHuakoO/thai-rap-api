@@ -23,7 +23,7 @@ export class DimensionRepository {
 
   findAllQuestions(dimensionId?: number): Promise<Question[]> {
     return this.prisma.question.findMany({
-      where: dimensionId ? { dimensionId } : undefined,
+      where: dimensionId !== undefined ? { dimensionId } : undefined,
       orderBy: { questionNo: 'asc' },
     });
   }

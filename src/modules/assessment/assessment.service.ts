@@ -12,7 +12,11 @@ import { saveLocalFile, deleteLocalFile } from '@shared/file-storage.util';
 import type { PaginatedResult } from '@common/types/api-response.type';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { StoreService } from '@modules/store/store.service';
-import { AssessmentRepository, type AssessmentDetail } from './assessment.repository';
+import {
+  AssessmentRepository,
+  type AssessmentDetail,
+  type AssessmentStatusRow,
+} from './assessment.repository';
 import { DimensionRepository } from './dimension.repository';
 import type { CreateAssessmentDto } from './dto/create-assessment.dto';
 import type { UpdateScoreDto } from './dto/update-score.dto';
@@ -24,7 +28,6 @@ import {
   computeTotalScore,
   detectRedFlags,
   getZone,
-  MAX_SCORE_PER_QUESTION,
   type ScoredQuestion,
 } from './assessment-scoring.util';
 
@@ -139,13 +142,16 @@ export class AssessmentService {
 
     const dimensionPctSums = new Map<number, number>(dimensions.map((d) => [d.id, 0]));
     for (const assessment of provinceRanked) {
+      const scoredQuestions = assessment.scores.map((s) => ({
+        dimensionId: dimensionIdByQuestionId.get(s.questionId) ?? -1,
+        rawScore: s.rawScore ?? 0,
+      }));
+      const dimensionPcts = computeDimensionScores(scoredQuestions, dimensions);
       for (const dimension of dimensions) {
-        const raw = assessment.scores
-          .filter((s) => dimensionIdByQuestionId.get(s.questionId) === dimension.id)
-          .reduce((sum, s) => sum + (s.rawScore ?? 0), 0);
-        const max = dimension.questionCount * MAX_SCORE_PER_QUESTION;
-        const pct = max === 0 ? 0 : (raw / max) * 100;
-        dimensionPctSums.set(dimension.id, (dimensionPctSums.get(dimension.id) ?? 0) + pct);
+        dimensionPctSums.set(
+          dimension.id,
+          (dimensionPctSums.get(dimension.id) ?? 0) + (dimensionPcts.get(dimension.id) ?? 0),
+        );
       }
     }
 
@@ -299,19 +305,13 @@ export class AssessmentService {
       }
     }
 
-    for (const item of dto.scores) {
-      await this.assessmentRepo.upsertScore(assessmentId, item.questionId, {
-        rawScore: item.rawScore,
-        note: item.note,
-        suggestion: item.suggestion,
-      });
-    }
+    await this.assessmentRepo.bulkUpsertScores(assessmentId, user.sub, dto.scores);
 
     return this.getProgress(assessmentId);
   }
 
   async getProgress(assessmentId: string): Promise<{ scored: number; total: number }> {
-    await this.findOne(assessmentId);
+    await this.findStatusOrThrow(assessmentId);
     const scored = await this.assessmentRepo.countScored(assessmentId);
     return { scored, total: TOTAL_QUESTIONS };
   }
@@ -430,9 +430,14 @@ export class AssessmentService {
     };
   }
 
-  private async assertDraftOrInProgress(assessmentId: string): Promise<void> {
-    const assessment = await this.assessmentRepo.findDetailById(assessmentId);
+  private async findStatusOrThrow(assessmentId: string): Promise<AssessmentStatusRow> {
+    const assessment = await this.assessmentRepo.findStatusById(assessmentId);
     if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
+    return assessment;
+  }
+
+  private async assertDraftOrInProgress(assessmentId: string): Promise<void> {
+    const assessment = await this.findStatusOrThrow(assessmentId);
     if (assessment.status === 'SUBMITTED') {
       throw new BadRequestException(
         ERROR_CODES.ASSESS.SUBMITTED,
