@@ -1,5 +1,5 @@
 import { Test, type TestingModule } from '@nestjs/testing';
-import { Role, StoreStatus, type Store, type StoreDocument } from '@prisma/client';
+import { Role, Round, StoreStatus, type Store, type StoreDocument } from '@prisma/client';
 import {
   BadRequestException,
   ForbiddenException,
@@ -89,7 +89,6 @@ describe('StoreService', () => {
             update: jest.fn(),
             remove: jest.fn(),
             countAll: jest.fn(),
-            countByStatus: jest.fn(),
             countDistinctStoresByRound: jest.fn(),
             findLatestAssessments: jest.fn().mockResolvedValue(new Map()),
             createDocument: jest.fn(),
@@ -98,7 +97,6 @@ describe('StoreService', () => {
             appendPhoto: jest.fn(),
             removePhoto: jest.fn(),
             findDistinctStoreTypes: jest.fn(),
-            countByProvince: jest.fn(),
           },
         },
         {
@@ -139,20 +137,20 @@ describe('StoreService', () => {
     it('should return stats for ADMIN', async () => {
       repository.countAll.mockResolvedValue(10);
       repository.countDistinctStoresByRound.mockResolvedValue(5);
-      repository.countByStatus.mockResolvedValue(2);
-      repository.countByProvince.mockResolvedValue([]);
       repository.findDistinctStoreTypes.mockResolvedValue([]);
 
       const result = await service.getStats(admin);
 
       expect(result.total).toBe(10);
+      expect(result.t2CompletedCount).toBe(5);
+      expect(result.t3CompletedCount).toBe(5);
+      expect(repository.countDistinctStoresByRound).toHaveBeenCalledWith(Round.T2);
+      expect(repository.countDistinctStoresByRound).toHaveBeenCalledWith(Round.T3);
     });
 
     it('should return stats for ENTREPRENEUR', async () => {
       repository.countAll.mockResolvedValue(10);
       repository.countDistinctStoresByRound.mockResolvedValue(5);
-      repository.countByStatus.mockResolvedValue(2);
-      repository.countByProvince.mockResolvedValue([]);
       repository.findDistinctStoreTypes.mockResolvedValue([]);
 
       const result = await service.getStats(owner);

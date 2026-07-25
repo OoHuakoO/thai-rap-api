@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Role, Round, StoreStatus, type Store, type StoreDocument } from '@prisma/client';
+import { Role, Round, type Store, type StoreDocument } from '@prisma/client';
 import type { PaginatedResult } from '@common/types/api-response.type';
 import {
   NotFoundException,
@@ -22,8 +22,6 @@ import type { UpdateStoreDto, UpdateStoreStatusDto } from './dto/update-store.dt
 import type { QueryStoreDto } from './dto/query-store.dto';
 import type { StoreStats } from './types/store-stats.type';
 import type { LatestAssessmentInfo, StoreResult } from './types/store-result.type';
-
-const PASSED_STATUSES: StoreStatus[] = [StoreStatus.SELECTED, StoreStatus.CONDITIONAL_SELECTED];
 
 @Injectable()
 export class StoreService {
@@ -50,23 +48,29 @@ export class StoreService {
     if (user.role !== Role.ADMIN && user.role !== Role.ENTREPRENEUR) {
       throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง');
     }
-    const [total, t0CompletedCount, t1CompletedCount, passedCount, byProvince, storeTypes] =
-      await Promise.all([
-        this.storeRepo.countAll(),
-        this.storeRepo.countDistinctStoresByRound(Round.T0),
-        this.storeRepo.countDistinctStoresByRound(Round.T1),
-        this.storeRepo.countByStatus(PASSED_STATUSES),
-        this.storeRepo.countByProvince(),
-        this.storeRepo.findDistinctStoreTypes(),
-      ]);
+    const [
+      total,
+      t0CompletedCount,
+      t1CompletedCount,
+      t2CompletedCount,
+      t3CompletedCount,
+      storeTypes,
+    ] = await Promise.all([
+      this.storeRepo.countAll(),
+      this.storeRepo.countDistinctStoresByRound(Round.T0),
+      this.storeRepo.countDistinctStoresByRound(Round.T1),
+      this.storeRepo.countDistinctStoresByRound(Round.T2),
+      this.storeRepo.countDistinctStoresByRound(Round.T3),
+      this.storeRepo.findDistinctStoreTypes(),
+    ]);
 
     return {
       total,
       targetTotal: STORE_TARGET_TOTAL,
       t0CompletedCount,
       t1CompletedCount,
-      passedCount,
-      byProvince,
+      t2CompletedCount,
+      t3CompletedCount,
       storeTypes,
     };
   }
