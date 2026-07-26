@@ -29,23 +29,9 @@ import type {
 
 const TOP20_LIMIT = 20;
 
-// Store.status holds only the store's current stage, so a funnel step counts
-// every store at or past that stage. The four post-pitching outcomes share one
-// rank because a store that was not selected still cleared every step before it.
-const STORE_STATUS_RANK: Record<StoreStatus, number> = {
-  [StoreStatus.REGISTERED]: 0,
-  [StoreStatus.T0_COMPLETED]: 1,
-  [StoreStatus.CAMP_COMPLETED]: 2,
-  [StoreStatus.T1_COMPLETED]: 3,
-  [StoreStatus.PITCHING_COMPLETED]: 4,
-  [StoreStatus.NOT_SELECTED]: 5,
-  [StoreStatus.WAITING_LIST]: 5,
-  [StoreStatus.CONDITIONAL_SELECTED]: 5,
-  [StoreStatus.SELECTED]: 5,
-  [StoreStatus.FIELD_AUDITED]: 6,
-  [StoreStatus.IDP_CREATED]: 7,
-  [StoreStatus.COMPLETED]: 8,
-};
+// The web grouped bar chart collides its axis and value labels past this many
+// provinces, and it renders every row the endpoint returns.
+const PROVINCE_COMPARISON_LIMIT = 5;
 
 const SELECTED_STATUSES: StoreStatus[] = [
   StoreStatus.SELECTED,
@@ -54,13 +40,17 @@ const SELECTED_STATUSES: StoreStatus[] = [
   StoreStatus.COMPLETED,
 ];
 
-const INCUBATION_STEP_LABELS = [
-  'คัดกรองเบื้องต้น',
-  'ประเมิน T1',
-  'พัฒนาศักยภาพ',
-  'ประเมิน',
-  'ผ่านเข้ารอบ',
+// The web funnel stamps a fixed T0/T1/T2/T3 badge on each position, so step N
+// must report round N's submissions — not a Store.status stage, which advances
+// on a different trigger and would leave the badge and the count disagreeing.
+const INCUBATION_ROUND_STEPS: { label: string; round: Round }[] = [
+  { label: 'คัดกรองเบื้องต้น', round: Round.T0 },
+  { label: 'ประเมิน T1', round: Round.T1 },
+  { label: 'พัฒนาศักยภาพ', round: Round.T2 },
+  { label: 'ประเมิน', round: Round.T3 },
 ];
+
+const INCUBATION_SELECTED_STEP_LABEL = 'ผ่านเข้ารอบ';
 
 const ACTIVITY_TEXT = {
   awaitingT1Title: (count: number) => `ร้านอาหาร ${count} ร้าน ยังไม่ประเมิน T1`,
@@ -211,30 +201,26 @@ export class DashboardService {
   async getIncubationProgress(user: JwtPayload): Promise<IncubationStep[]> {
     this.assertCanRead(user);
 
-    const [totalStores, statusCounts, t0Completed, t1Completed] = await Promise.all([
+    const [totalStores, statusCounts, roundCounts] = await Promise.all([
       this.dashboardRepo.countStores(),
       this.dashboardRepo.countStoresByStatus(),
-      this.dashboardRepo.countSubmittedByRound(Round.T0),
-      this.dashboardRepo.countSubmittedByRound(Round.T1),
+      Promise.all(
+        INCUBATION_ROUND_STEPS.map((step) => this.dashboardRepo.countSubmittedByRound(step.round)),
+      ),
     ]);
 
-    const countAtOrPast = (status: StoreStatus): number =>
-      statusCounts
-        .filter((row) => STORE_STATUS_RANK[row.status] >= STORE_STATUS_RANK[status])
-        .reduce((sum, row) => sum + row.count, 0);
-
-    const counts = [
-      totalStores,
-      t0Completed,
-      countAtOrPast(StoreStatus.CAMP_COMPLETED),
-      t1Completed,
-      countSelected(statusCounts),
+    const steps = [
+      ...INCUBATION_ROUND_STEPS.map((step, index) => ({
+        label: step.label,
+        count: roundCounts[index],
+      })),
+      { label: INCUBATION_SELECTED_STEP_LABEL, count: countSelected(statusCounts) },
     ];
 
-    return INCUBATION_STEP_LABELS.map((label, index) => ({
+    return steps.map(({ label, count }) => ({
       label,
-      count: counts[index],
-      percentage: toPercentage(counts[index], totalStores),
+      count,
+      percentage: toPercentage(count, totalStores),
     }));
   }
 
@@ -248,17 +234,42 @@ export class DashboardService {
     const toRound = query.to ?? PROVINCE_COMPARISON_DEFAULT_TO;
 
     const rows = await this.dashboardRepo.findProvinceRoundScores([fromRound, toRound]);
-    const byProvince = new Map<string, { from: number[]; to: number[] }>();
+    const byStore = new Map<string, { province: string; from?: number; to?: number }>();
 
     for (const row of rows) {
       if (row.totalScore === null) continue;
-      const entry = byProvince.get(row.store.province) ?? { from: [], to: [] };
-      if (row.round === fromRound) entry.from.push(row.totalScore);
-      if (row.round === toRound) entry.to.push(row.totalScore);
-      byProvince.set(row.store.province, entry);
+      const entry = byStore.get(row.storeId) ?? { province: row.store.province };
+      if (row.round === fromRound) entry.from = row.totalScore;
+      if (row.round === toRound) entry.to = row.totalScore;
+      byStore.set(row.storeId, entry);
     }
 
+    // Only stores holding both scores count, so the two bars describe the same
+    // set of stores. Averaging every fromRound against every toRound lets a
+    // province's later round land lower purely because its weaker stores
+    // dropped out, and gives a province with no baseline a fromScore of 0 that
+    // reads as a real zero on the chart rather than as missing data.
+    const byProvince = new Map<string, { from: number[]; to: number[] }>();
+
+    for (const store of byStore.values()) {
+      if (store.from === undefined || store.to === undefined) continue;
+      const entry = byProvince.get(store.province) ?? { from: [], to: [] };
+      entry.from.push(store.from);
+      entry.to.push(store.to);
+      byProvince.set(store.province, entry);
+    }
+
+    // Cut by paired-store count, not by score, so the provinces that survive are
+    // the ones carrying the most data — a province with a handful of paired
+    // stores swings its own average by tens of points. Ties break on name to
+    // keep the cut stable across requests, since the rows arrive unordered.
     return [...byProvince.entries()]
+      .sort(([aProvince, a], [bProvince, b]) =>
+        b.from.length !== a.from.length
+          ? b.from.length - a.from.length
+          : aProvince.localeCompare(bProvince),
+      )
+      .slice(0, PROVINCE_COMPARISON_LIMIT)
       .map(([province, scores]) => ({
         province,
         fromRound,

@@ -17,8 +17,8 @@ function buildGoodScores(overrides: Record<number, number> = {}): ScoredQuestion
 
 describe('computeDimensionScores', () => {
   const dimensions: DimensionInfo[] = [
-    { id: 1, weight: 40, questionCount: 2 },
-    { id: 2, weight: 60, questionCount: 3 },
+    { id: 1, weight: 40, maxTotal: 8 },
+    { id: 2, weight: 60, maxTotal: 12 },
   ];
 
   it('should compute the percentage of max score per dimension', () => {
@@ -36,8 +36,8 @@ describe('computeDimensionScores', () => {
     expect(result.get(2)).toBeCloseTo(50); // (2+2+2)/(3*4)*100
   });
 
-  it('should return 0 when a dimension has questionCount 0 (no division by zero)', () => {
-    const result = computeDimensionScores([], [{ id: 9, weight: 0, questionCount: 0 }]);
+  it('should return 0 when a dimension has no questions (no division by zero)', () => {
+    const result = computeDimensionScores([], [{ id: 9, weight: 0, maxTotal: 0 }]);
 
     expect(result.get(9)).toBe(0);
   });
@@ -52,8 +52,8 @@ describe('computeDimensionScores', () => {
 
 describe('computeTotalScore', () => {
   const dimensions: DimensionInfo[] = [
-    { id: 1, weight: 40, questionCount: 2 },
-    { id: 2, weight: 60, questionCount: 3 },
+    { id: 1, weight: 40, maxTotal: 8 },
+    { id: 2, weight: 60, maxTotal: 12 },
   ];
 
   it('should sum each dimension pct weighted by the dimension weight', () => {

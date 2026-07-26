@@ -18,7 +18,7 @@ import {
 } from '@common/exceptions/app.exception';
 import { ERROR_CODES } from '@constants/index';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
-import { saveLocalFile, deleteLocalFile } from '@shared/file-storage.util';
+import { saveLocalFile, deleteLocalFile, deleteLocalDir } from '@shared/file-storage.util';
 import { StoreService } from '@modules/store/store.service';
 import type { StoreResult } from '@modules/store/types/store-result.type';
 import { AssessmentService } from './assessment.service';
@@ -28,7 +28,7 @@ import {
   type AssessmentStatusRow,
   type AssessmentForRanking,
 } from './assessment.repository';
-import { DimensionRepository } from './dimension.repository';
+import { DimensionService } from './dimension.service';
 import type { CreateAssessmentDto } from './dto/create-assessment.dto';
 import type { UpdateScoreDto } from './dto/update-score.dto';
 import type { BulkScoreDto } from './dto/bulk-score.dto';
@@ -36,10 +36,12 @@ import type { BulkScoreDto } from './dto/bulk-score.dto';
 jest.mock('@shared/file-storage.util', () => ({
   saveLocalFile: jest.fn(),
   deleteLocalFile: jest.fn(),
+  deleteLocalDir: jest.fn(),
 }));
 
 const mockedSaveLocalFile = saveLocalFile as jest.MockedFunction<typeof saveLocalFile>;
 const mockedDeleteLocalFile = deleteLocalFile as jest.MockedFunction<typeof deleteLocalFile>;
+const mockedDeleteLocalDir = deleteLocalDir as jest.MockedFunction<typeof deleteLocalDir>;
 
 const admin: JwtPayload = { sub: 'admin-1', email: 'admin@example.com', role: Role.ADMIN };
 const entrepreneur: JwtPayload = {
@@ -47,6 +49,7 @@ const entrepreneur: JwtPayload = {
   email: 'owner@example.com',
   role: Role.ENTREPRENEUR,
 };
+const mentor: JwtPayload = { sub: 'mentor-1', email: 'mentor@example.com', role: Role.MENTOR };
 
 // Two dimensions, 25 questions each — enough to exercise the weighted-total
 // and per-dimension-average formulas without mirroring the real 8-dimension seed.
@@ -62,6 +65,9 @@ function buildQuestion(id: number, dimensionId: number): Question {
 const mockQuestions: Question[] = Array.from({ length: 50 }, (_, i) =>
   buildQuestion(i + 1, i < 25 ? 1 : 2),
 );
+
+// What DimensionService derives from the two above: 25 questions × maxScore 4.
+const mockDimensionInfos = mockDimensions.map((dimension) => ({ ...dimension, maxTotal: 100 }));
 
 function buildScore(questionId: number, rawScore: number | null) {
   const question = mockQuestions.find((q) => q.id === questionId)!;
@@ -181,7 +187,7 @@ function buildRankingAssessment(
 describe('AssessmentService', () => {
   let service: AssessmentService;
   let repo: jest.Mocked<AssessmentRepository>;
-  let dimensionRepo: jest.Mocked<DimensionRepository>;
+  let dimensionService: jest.Mocked<DimensionService>;
   let storeService: jest.Mocked<StoreService>;
 
   beforeEach(async () => {
@@ -216,10 +222,14 @@ describe('AssessmentService', () => {
           },
         },
         {
-          provide: DimensionRepository,
+          provide: DimensionService,
           useValue: {
             findAllDimensions: jest.fn().mockResolvedValue(mockDimensions),
             findAllQuestions: jest.fn().mockResolvedValue(mockQuestions),
+            findDimensionInfos: jest.fn().mockResolvedValue(mockDimensionInfos),
+            findScoringContext: jest
+              .fn()
+              .mockResolvedValue({ dimensions: mockDimensionInfos, questions: mockQuestions }),
             findQuestionById: jest.fn(),
           },
         },
@@ -232,7 +242,7 @@ describe('AssessmentService', () => {
 
     service = module.get(AssessmentService);
     repo = module.get(AssessmentRepository);
-    dimensionRepo = module.get(DimensionRepository);
+    dimensionService = module.get(DimensionService);
     storeService = module.get(StoreService);
   });
 
@@ -241,20 +251,31 @@ describe('AssessmentService', () => {
       repo.findAll.mockResolvedValue([mockAssessmentRow]);
       repo.count.mockResolvedValue(1);
 
-      const result = await service.findAll({});
+      const result = await service.findAll({}, admin);
 
       expect(result.items).toHaveLength(1);
       expect(result.meta.total).toBe(1);
+      expect(repo.findAll).toHaveBeenCalledWith({}, 0, expect.any(Number), undefined);
+    });
+
+    it('should scope the list to the owner stores for ENTREPRENEUR', async () => {
+      repo.findAll.mockResolvedValue([]);
+      repo.count.mockResolvedValue(0);
+
+      await service.findAll({}, entrepreneur);
+
+      expect(repo.findAll).toHaveBeenCalledWith({}, 0, expect.any(Number), entrepreneur.sub);
+      expect(repo.count).toHaveBeenCalledWith({}, entrepreneur.sub);
     });
   });
 
-  // findOne has no RBAC check of its own — it's a plain read, so there is no
-  // forbidden case to cover here.
+  // findOne delegates its RBAC to storeService.findOne on the owning store, so
+  // the forbidden case is asserted as a pass-through rather than re-tested here.
   describe('findOne', () => {
     it('should return assessment detail with all 50 questions mapped', async () => {
       repo.findDetailById.mockResolvedValue(mockAssessmentDetail);
 
-      const result = await service.findOne('assessment-1');
+      const result = await service.findOne('assessment-1', admin);
 
       expect(result.id).toBe('assessment-1');
       expect(result.questions).toHaveLength(50);
@@ -264,7 +285,7 @@ describe('AssessmentService', () => {
     it('should return a live currentScore while totalScore is still unset', async () => {
       repo.findDetailById.mockResolvedValue(mockAssessmentDetail);
 
-      const result = await service.findOne('assessment-1');
+      const result = await service.findOne('assessment-1', admin);
 
       // Every question scored 3 of 4 — 75% in both dimensions, so the weighted
       // total is 75 whatever the weights are. Not yet submitted, so totalScore
@@ -282,7 +303,7 @@ describe('AssessmentService', () => {
         ),
       });
 
-      const result = await service.findOne('assessment-1');
+      const result = await service.findOne('assessment-1', admin);
 
       // Dimension 1 at 75% carrying weight 30, dimension 2 untouched at 0%.
       expect(result.currentScore).toBe(22.5);
@@ -291,7 +312,18 @@ describe('AssessmentService', () => {
     it('should throw NotFoundException when the assessment does not exist', async () => {
       repo.findDetailById.mockResolvedValue(null);
 
-      await expect(service.findOne('missing')).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.findOne('missing', admin)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('should propagate the store access check for an entrepreneur reading another store', async () => {
+      repo.findDetailById.mockResolvedValue(mockAssessmentDetail);
+      storeService.findOne.mockRejectedValue(
+        new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง'),
+      );
+
+      await expect(service.findOne('assessment-1', entrepreneur)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
     });
   });
 
@@ -407,7 +439,7 @@ describe('AssessmentService', () => {
 
     it('should upsert the score and reassign the assessor', async () => {
       repo.findStatusById.mockResolvedValue(mockStatusRow);
-      dimensionRepo.findQuestionById.mockResolvedValue(mockQuestions[0]);
+      dimensionService.findQuestionById.mockResolvedValue(mockQuestions[0]);
       repo.upsertScore.mockResolvedValue({
         ...mockScoreRow,
         note: 'บันทึก',
@@ -422,7 +454,7 @@ describe('AssessmentService', () => {
 
     it('should throw NotFoundException when the question does not exist', async () => {
       repo.findStatusById.mockResolvedValue(mockStatusRow);
-      dimensionRepo.findQuestionById.mockResolvedValue(null);
+      dimensionService.findQuestionById.mockResolvedValue(null);
 
       await expect(service.updateScore('assessment-1', 9999, dto, admin)).rejects.toBeInstanceOf(
         NotFoundException,
@@ -444,6 +476,36 @@ describe('AssessmentService', () => {
       await expect(service.updateScore('assessment-1', 1, dto, admin)).rejects.toBeInstanceOf(
         BadRequestException,
       );
+    });
+
+    it('should throw BadRequestException when the assessment is already approved', async () => {
+      repo.findStatusById.mockResolvedValue({
+        ...mockStatusRow,
+        status: AssessmentStatus.APPROVED,
+      });
+
+      await expect(service.updateScore('assessment-1', 1, dto, admin)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(repo.upsertScore).not.toHaveBeenCalled();
+    });
+
+    it('should let a MENTOR score, matching the web ASSESSMENT_WRITE permission', async () => {
+      repo.findStatusById.mockResolvedValue(mockStatusRow);
+      dimensionService.findQuestionById.mockResolvedValue(mockQuestions[0]);
+      repo.upsertScore.mockResolvedValue(mockScoreRow);
+
+      await expect(service.updateScore('assessment-1', 1, dto, mentor)).resolves.toBeDefined();
+    });
+
+    it('should throw BadRequestException when rawScore exceeds the question maxScore', async () => {
+      repo.findStatusById.mockResolvedValue(mockStatusRow);
+      dimensionService.findQuestionById.mockResolvedValue({ ...mockQuestions[0], maxScore: 2 });
+
+      await expect(
+        service.updateScore('assessment-1', 1, { rawScore: 3 }, admin),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.upsertScore).not.toHaveBeenCalled();
     });
   });
 
@@ -567,7 +629,7 @@ describe('AssessmentService', () => {
       repo.findStatusById.mockResolvedValue(mockStatusRow);
       repo.countScored.mockResolvedValue(12);
 
-      const result = await service.getProgress('assessment-1');
+      const result = await service.getProgress('assessment-1', admin);
 
       expect(result).toEqual({ scored: 12, total: 50 });
     });
@@ -575,7 +637,7 @@ describe('AssessmentService', () => {
     it('should throw NotFoundException when the assessment does not exist', async () => {
       repo.findStatusById.mockResolvedValue(null);
 
-      await expect(service.getProgress('missing')).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.getProgress('missing', admin)).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 
@@ -687,6 +749,19 @@ describe('AssessmentService', () => {
       );
     });
 
+    // Re-submitting an approved round would write its red flags a second time.
+    it('should throw BadRequestException when already approved', async () => {
+      repo.findDetailById.mockResolvedValue({
+        ...mockAssessmentDetail,
+        status: AssessmentStatus.APPROVED,
+      });
+
+      await expect(service.submit('assessment-1', admin)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(repo.submitAssessment).not.toHaveBeenCalled();
+    });
+
     it('should throw BadRequestException when not all 50 questions are scored', async () => {
       repo.findDetailById.mockResolvedValue({
         ...mockAssessmentDetail,
@@ -717,17 +792,18 @@ describe('AssessmentService', () => {
   });
 
   describe('remove', () => {
-    it('should delete a draft assessment', async () => {
-      repo.findDetailById.mockResolvedValue(mockAssessmentDetail);
-      repo.remove.mockResolvedValue(mockAssessmentRow);
+    it('should delete a draft assessment and its evidence directory', async () => {
+      repo.findStatusById.mockResolvedValue(mockStatusRow);
+      repo.remove.mockResolvedValue(undefined);
 
       await service.remove('assessment-1', admin);
 
       expect(repo.remove).toHaveBeenCalledWith('assessment-1');
+      expect(mockedDeleteLocalDir).toHaveBeenCalledWith('evidence/assessment-1');
     });
 
     it('should throw NotFoundException when the assessment does not exist', async () => {
-      repo.findDetailById.mockResolvedValue(null);
+      repo.findStatusById.mockResolvedValue(null);
 
       await expect(service.remove('missing', admin)).rejects.toBeInstanceOf(NotFoundException);
     });
@@ -739,8 +815,8 @@ describe('AssessmentService', () => {
     });
 
     it('should throw BadRequestException when the assessment is not a draft', async () => {
-      repo.findDetailById.mockResolvedValue({
-        ...mockAssessmentDetail,
+      repo.findStatusById.mockResolvedValue({
+        ...mockStatusRow,
         status: AssessmentStatus.SUBMITTED,
       });
 

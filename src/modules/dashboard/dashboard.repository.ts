@@ -11,6 +11,7 @@ export interface RoundScoreRow {
 }
 
 export interface ProvinceScoreRow {
+  storeId: string;
   round: Round;
   totalScore: number | null;
   store: { province: string };
@@ -100,6 +101,7 @@ export class DashboardRepository {
     return this.prisma.assessment.findMany({
       where: { round: { in: rounds }, status: { in: SUBMITTED_STATUSES } },
       select: {
+        storeId: true,
         round: true,
         totalScore: true,
         store: { select: { province: true } },

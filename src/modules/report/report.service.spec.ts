@@ -3,7 +3,7 @@ import { AssessmentStatus, RedFlagType, Role, Round, Severity } from '@prisma/cl
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { ForbiddenException, NotFoundException } from '@common/exceptions/app.exception';
 import { ERROR_CODES } from '@constants/index';
-import { DimensionRepository } from '@modules/assessment/dimension.repository';
+import { DimensionService } from '@modules/assessment/dimension.service';
 import { StoreService } from '@modules/store/store.service';
 import { ReportRepository, type RoundReportRow } from './report.repository';
 import { ReportService } from './report.service';
@@ -20,9 +20,17 @@ const store = {
 };
 
 // Two dimensions, 2 questions each: a perfect 4/4 on both questions is 100%.
+// maxTotal is what the scoring util divides by — 2 questions worth 4 each.
 const dimensions = [
-  { id: 1, name: 'ความปลอดภัยอาหาร', nameEn: 'Food Safety', weight: 60, questionCount: 2 },
-  { id: 2, name: 'การเงิน', nameEn: 'Financial', weight: 40, questionCount: 2 },
+  {
+    id: 1,
+    name: 'ความปลอดภัยอาหาร',
+    nameEn: 'Food Safety',
+    weight: 60,
+    questionCount: 2,
+    maxTotal: 8,
+  },
+  { id: 2, name: 'การเงิน', nameEn: 'Financial', weight: 40, questionCount: 2, maxTotal: 8 },
 ];
 
 function roundRow(overrides: Partial<RoundReportRow> = {}): RoundReportRow {
@@ -70,9 +78,10 @@ describe('ReportService', () => {
           },
         },
         {
-          provide: DimensionRepository,
+          provide: DimensionService,
           useValue: {
             findAllDimensions: jest.fn().mockResolvedValue(dimensions),
+            findDimensionInfos: jest.fn().mockResolvedValue(dimensions),
             findAllQuestions: jest.fn().mockResolvedValue([]),
           },
         },

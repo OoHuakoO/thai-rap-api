@@ -3,7 +3,8 @@ import { RedFlagType, Severity } from '@prisma/client';
 export interface DimensionInfo {
   id: number;
   weight: number;
-  questionCount: number;
+  /** Full marks available in this dimension — Σ maxScore of its questions. */
+  maxTotal: number;
 }
 
 export interface ScoredQuestion {
@@ -18,7 +19,29 @@ export interface RedFlagCandidate {
   triggerQuestions: number[];
 }
 
+/** The highest `Question.maxScore` the scoring UI and the DTO bound allow. */
 export const MAX_SCORE_PER_QUESTION = 4;
+
+// The denominator comes from the questions themselves, never from
+// Dimension.questionCount × a fixed 4 — Question.maxScore is per-question in
+// the schema, and the web's sumQuestionScores already sums it. Deriving both
+// sides from the same source is what keeps the two percentages equal.
+export function buildDimensionInfos<T extends { id: number; weight: number }>(
+  dimensions: T[],
+  questions: { dimensionId: number; maxScore: number }[],
+): (T & { maxTotal: number })[] {
+  const maxByDimension = new Map<number, number>();
+  for (const question of questions) {
+    maxByDimension.set(
+      question.dimensionId,
+      (maxByDimension.get(question.dimensionId) ?? 0) + question.maxScore,
+    );
+  }
+  return dimensions.map((dimension) => ({
+    ...dimension,
+    maxTotal: maxByDimension.get(dimension.id) ?? 0,
+  }));
+}
 
 export function computeDimensionScores(
   scores: Pick<ScoredQuestion, 'dimensionId' | 'rawScore'>[],
@@ -28,8 +51,7 @@ export function computeDimensionScores(
   for (const dimension of dimensions) {
     const dimensionScores = scores.filter((s) => s.dimensionId === dimension.id);
     const total = dimensionScores.reduce((sum, s) => sum + s.rawScore, 0);
-    const max = dimension.questionCount * MAX_SCORE_PER_QUESTION;
-    const pct = max === 0 ? 0 : (total / max) * 100;
+    const pct = dimension.maxTotal === 0 ? 0 : (total / dimension.maxTotal) * 100;
     result.set(dimension.id, pct);
   }
   return result;

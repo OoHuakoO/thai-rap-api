@@ -42,8 +42,8 @@ export class AssessmentController {
 
   @Get()
   @ApiOperation({ summary: 'List assessments (filter by storeId, round, status)' })
-  findAll(@Query() query: QueryAssessmentDto) {
-    return this.assessmentService.findAll(query);
+  findAll(@Query() query: QueryAssessmentDto, @CurrentUser() user: JwtPayload) {
+    return this.assessmentService.findAll(query, user);
   }
 
   @Get('rank')
@@ -56,8 +56,8 @@ export class AssessmentController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get an assessment with all 50 questions and current scores' })
-  findOne(@Param('id') id: string) {
-    return this.assessmentService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.assessmentService.findOne(id, user);
   }
 
   @Post()
@@ -138,8 +138,8 @@ export class AssessmentController {
 
   @Get(':id/scores/progress')
   @ApiOperation({ summary: 'Get how many of the 50 questions are scored' })
-  getProgress(@Param('id') id: string) {
-    return this.assessmentService.getProgress(id);
+  getProgress(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.assessmentService.getProgress(id, user);
   }
 
   @Patch(':id/notes')

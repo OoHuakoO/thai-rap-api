@@ -3,7 +3,7 @@ import { Round } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { NotFoundException } from '@common/exceptions/app.exception';
 import { ERROR_CODES } from '@constants/index';
-import { DimensionRepository } from '@modules/assessment/dimension.repository';
+import { DimensionService } from '@modules/assessment/dimension.service';
 import {
   computeDimensionScores,
   getZone,
@@ -32,7 +32,7 @@ function round2(value: number): number {
 export class ReportService {
   constructor(
     private readonly reportRepo: ReportRepository,
-    private readonly dimensionRepo: DimensionRepository,
+    private readonly dimensionService: DimensionService,
     private readonly storeService: StoreService,
   ) {}
 
@@ -154,15 +154,11 @@ export class ReportService {
   }
 
   private async loadDimensions(): Promise<{ info: DimensionInfo; name: string }[]> {
-    const dimensions = await this.dimensionRepo.findAllDimensions();
+    const dimensions = await this.dimensionService.findDimensionInfos();
 
     return dimensions.map((dimension) => ({
       name: dimension.name,
-      info: {
-        id: dimension.id,
-        weight: dimension.weight,
-        questionCount: dimension.questionCount,
-      },
+      info: { id: dimension.id, weight: dimension.weight, maxTotal: dimension.maxTotal },
     }));
   }
 

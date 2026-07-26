@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  AssessmentStatus,
   StoreStatus,
   type Assessment,
   type Evidence,
@@ -65,29 +66,53 @@ const statusSelect = {
 
 export type AssessmentStatusRow = Prisma.AssessmentGetPayload<{ select: typeof statusSelect }>;
 
+const summarySelect = {
+  id: true,
+  storeId: true,
+  round: true,
+  assessorId: true,
+  status: true,
+  totalScore: true,
+  createdAt: true,
+  updatedAt: true,
+  submittedAt: true,
+} satisfies Prisma.AssessmentSelect;
+
+export type AssessmentSummaryRow = Prisma.AssessmentGetPayload<{ select: typeof summarySelect }>;
+
 @Injectable()
 export class AssessmentRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private buildWhere(query: QueryAssessmentDto): Prisma.AssessmentWhereInput {
+  // ownerId scopes the list to one entrepreneur's own stores — the same
+  // Store.ownerId gate StoreRepository.findAll applies, so listing assessments
+  // can never widen what a role may already read on the store itself.
+  private buildWhere(query: QueryAssessmentDto, ownerId?: string): Prisma.AssessmentWhereInput {
     const where: Prisma.AssessmentWhereInput = {};
     if (query.storeId) where.storeId = query.storeId;
     if (query.round) where.round = query.round;
     if (query.status) where.status = query.status;
+    if (ownerId) where.store = { ownerId };
     return where;
   }
 
-  findAll(query: QueryAssessmentDto, skip: number, take: number): Promise<Assessment[]> {
+  findAll(
+    query: QueryAssessmentDto,
+    skip: number,
+    take: number,
+    ownerId?: string,
+  ): Promise<AssessmentSummaryRow[]> {
     return this.prisma.assessment.findMany({
-      where: this.buildWhere(query),
+      where: this.buildWhere(query, ownerId),
+      select: summarySelect,
       skip,
       take,
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  count(query: QueryAssessmentDto): Promise<number> {
-    return this.prisma.assessment.count({ where: this.buildWhere(query) });
+  count(query: QueryAssessmentDto, ownerId?: string): Promise<number> {
+    return this.prisma.assessment.count({ where: this.buildWhere(query, ownerId) });
   }
 
   findByStoreAndRound(storeId: string, round: Round): Promise<Assessment | null> {
@@ -102,9 +127,11 @@ export class AssessmentRepository {
     });
   }
 
+  // APPROVED belongs here as much as SUBMITTED — approving a round freezes its
+  // totalScore, it doesn't withdraw the store from the round's ranking.
   findSubmittedForRanking(round: Round): Promise<AssessmentForRanking[]> {
     return this.prisma.assessment.findMany({
-      where: { round, status: 'SUBMITTED' },
+      where: { round, status: { in: [AssessmentStatus.SUBMITTED, AssessmentStatus.APPROVED] } },
       select: rankingSelect,
     });
   }
@@ -124,8 +151,16 @@ export class AssessmentRepository {
     return this.prisma.assessment.create({ data });
   }
 
-  remove(id: string): Promise<Assessment> {
-    return this.prisma.assessment.delete({ where: { id } });
+  // Every child FK is ON DELETE RESTRICT, so deleting the row on its own fails
+  // as soon as a single question has been scored — the children have to go
+  // first, innermost outwards, inside one transaction.
+  async remove(id: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.evidence.deleteMany({ where: { score: { assessmentId: id } } });
+      await tx.score.deleteMany({ where: { assessmentId: id } });
+      await tx.redFlag.deleteMany({ where: { assessmentId: id } });
+      await tx.assessment.delete({ where: { id } });
+    });
   }
 
   updateNotes(id: string, notes: string | null): Promise<Assessment> {

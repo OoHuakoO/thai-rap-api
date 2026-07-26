@@ -234,10 +234,16 @@ describe('DashboardService', () => {
   });
 
   describe('getIncubationProgress', () => {
-    it('should build the five funnel steps from statuses and submitted rounds', async () => {
+    it('should report one round per step so each step matches its round badge', async () => {
+      const submittedByRound: Record<Round, number> = {
+        [Round.T0]: 90,
+        [Round.T1]: 70,
+        [Round.T2]: 50,
+        [Round.T3]: 30,
+      };
       repository.countStores.mockResolvedValue(100);
       repository.countSubmittedByRound.mockImplementation((round) =>
-        Promise.resolve(round === Round.T0 ? 90 : 50),
+        Promise.resolve(submittedByRound[round]),
       );
       repository.countStoresByStatus.mockResolvedValue([
         { status: StoreStatus.REGISTERED, count: 30 },
@@ -249,11 +255,32 @@ describe('DashboardService', () => {
       const result = await service.getIncubationProgress(admin);
 
       expect(result).toHaveLength(5);
-      expect(result[0]).toEqual({ label: 'คัดกรองเบื้องต้น', count: 100, percentage: 100 });
-      expect(result[1]).toEqual({ label: 'ประเมิน T1', count: 90, percentage: 90 });
-      expect(result[2]).toEqual({ label: 'พัฒนาศักยภาพ', count: 70, percentage: 70 });
-      expect(result[3]).toEqual({ label: 'ประเมิน', count: 50, percentage: 50 });
+      expect(result[0]).toEqual({ label: 'คัดกรองเบื้องต้น', count: 90, percentage: 90 });
+      expect(result[1]).toEqual({ label: 'ประเมิน T1', count: 70, percentage: 70 });
+      expect(result[2]).toEqual({ label: 'พัฒนาศักยภาพ', count: 50, percentage: 50 });
+      expect(result[3]).toEqual({ label: 'ประเมิน', count: 30, percentage: 30 });
       expect(result[4]).toEqual({ label: 'ผ่านเข้ารอบ', count: 10, percentage: 10 });
+    });
+
+    it('should count every post-selection status in the final step', async () => {
+      repository.countStores.mockResolvedValue(100);
+      repository.countStoresByStatus.mockResolvedValue([
+        { status: StoreStatus.NOT_SELECTED, count: 40 },
+        { status: StoreStatus.SELECTED, count: 10 },
+        { status: StoreStatus.FIELD_AUDITED, count: 6 },
+        { status: StoreStatus.COMPLETED, count: 4 },
+      ]);
+
+      const result = await service.getIncubationProgress(admin);
+
+      expect(result[4]).toEqual({ label: 'ผ่านเข้ารอบ', count: 20, percentage: 20 });
+    });
+
+    it('should return zero percentages when there are no stores', async () => {
+      const result = await service.getIncubationProgress(admin);
+
+      expect(result).toHaveLength(5);
+      expect(result.every((step) => step.count === 0 && step.percentage === 0)).toBe(true);
     });
 
     it('should reject ENTREPRENEUR', async () => {
@@ -264,11 +291,10 @@ describe('DashboardService', () => {
   describe('getProvinceComparison', () => {
     it('should default to averaging T0 against T1 per province', async () => {
       repository.findProvinceRoundScores.mockResolvedValue([
-        { round: Round.T0, totalScore: 60, store: { province: 'จันทบุรี' } },
-        { round: Round.T0, totalScore: 70, store: { province: 'จันทบุรี' } },
-        { round: Round.T1, totalScore: 80, store: { province: 'จันทบุรี' } },
-        { round: Round.T1, totalScore: 90, store: { province: 'ชลบุรี' } },
-        { round: Round.T1, totalScore: null, store: { province: 'ชลบุรี' } },
+        { storeId: 'a', round: Round.T0, totalScore: 60, store: { province: 'จันทบุรี' } },
+        { storeId: 'a', round: Round.T1, totalScore: 80, store: { province: 'จันทบุรี' } },
+        { storeId: 'b', round: Round.T0, totalScore: 70, store: { province: 'จันทบุรี' } },
+        { storeId: 'b', round: Round.T1, totalScore: 90, store: { province: 'จันทบุรี' } },
       ]);
 
       const result = await service.getProvinceComparison({}, admin);
@@ -276,26 +302,97 @@ describe('DashboardService', () => {
       expect(repository.findProvinceRoundScores).toHaveBeenCalledWith([Round.T0, Round.T1]);
       expect(result).toEqual([
         {
-          province: 'ชลบุรี',
-          fromRound: Round.T0,
-          toRound: Round.T1,
-          fromScore: 0,
-          toScore: 90,
-        },
-        {
           province: 'จันทบุรี',
           fromRound: Round.T0,
           toRound: Round.T1,
           fromScore: 65,
+          toScore: 85,
+        },
+      ]);
+    });
+
+    it('should average only stores holding both rounds', async () => {
+      repository.findProvinceRoundScores.mockResolvedValue([
+        { storeId: 'a', round: Round.T0, totalScore: 60, store: { province: 'จันทบุรี' } },
+        { storeId: 'a', round: Round.T1, totalScore: 80, store: { province: 'จันทบุรี' } },
+        // Sat T0 but dropped out before T1 — counting it would drag the T0 bar
+        // down against a T1 bar it never contributed to.
+        { storeId: 'b', round: Round.T0, totalScore: 20, store: { province: 'จันทบุรี' } },
+        { storeId: 'c', round: Round.T1, totalScore: null, store: { province: 'จันทบุรี' } },
+        { storeId: 'c', round: Round.T0, totalScore: 30, store: { province: 'จันทบุรี' } },
+      ]);
+
+      const result = await service.getProvinceComparison({}, admin);
+
+      expect(result).toEqual([
+        {
+          province: 'จันทบุรี',
+          fromRound: Round.T0,
+          toRound: Round.T1,
+          fromScore: 60,
           toScore: 80,
         },
       ]);
     });
 
+    it('should drop a province with no store holding both rounds', async () => {
+      repository.findProvinceRoundScores.mockResolvedValue([
+        { storeId: 'a', round: Round.T0, totalScore: 60, store: { province: 'จันทบุรี' } },
+        { storeId: 'a', round: Round.T1, totalScore: 80, store: { province: 'จันทบุรี' } },
+        { storeId: 'b', round: Round.T1, totalScore: 90, store: { province: 'ชลบุรี' } },
+      ]);
+
+      const result = await service.getProvinceComparison({}, admin);
+
+      expect(result.map((item) => item.province)).toEqual(['จันทบุรี']);
+    });
+
+    it('should keep only the five provinces with the most paired stores', async () => {
+      // Seven provinces, each with a different number of paired stores. The two
+      // smallest must be cut even though their averages are the highest.
+      const pairedStores = [
+        { province: 'จันทบุรี', stores: 7, score: 50 },
+        { province: 'ชลบุรี', stores: 6, score: 55 },
+        { province: 'ระยอง', stores: 5, score: 60 },
+        { province: 'ตราด', stores: 4, score: 65 },
+        { province: 'สระแก้ว', stores: 3, score: 70 },
+        { province: 'ปราจีนบุรี', stores: 2, score: 95 },
+        { province: 'ฉะเชิงเทรา', stores: 1, score: 99 },
+      ];
+      repository.findProvinceRoundScores.mockResolvedValue(
+        pairedStores.flatMap(({ province, stores, score }) =>
+          Array.from({ length: stores }, (_, i) => [
+            {
+              storeId: `${province}-${i}`,
+              round: Round.T0,
+              totalScore: score - 10,
+              store: { province },
+            },
+            {
+              storeId: `${province}-${i}`,
+              round: Round.T1,
+              totalScore: score,
+              store: { province },
+            },
+          ]).flat(),
+        ),
+      );
+
+      const result = await service.getProvinceComparison({}, admin);
+
+      expect(result.map((item) => item.province)).toEqual([
+        'สระแก้ว',
+        'ตราด',
+        'ระยอง',
+        'ชลบุรี',
+        'จันทบุรี',
+      ]);
+    });
+
     it('should compare the requested rounds when they are given', async () => {
       repository.findProvinceRoundScores.mockResolvedValue([
-        { round: Round.T2, totalScore: 70, store: { province: 'ระยอง' } },
-        { round: Round.T3, totalScore: 84, store: { province: 'ระยอง' } },
+        { storeId: 'a', round: Round.T2, totalScore: 70, store: { province: 'ระยอง' } },
+        { storeId: 'a', round: Round.T3, totalScore: 84, store: { province: 'ระยอง' } },
       ]);
 
       const result = await service.getProvinceComparison({ from: Round.T2, to: Round.T3 }, admin);
