@@ -6,7 +6,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@common/exceptions/app.exception';
-import { ERROR_CODES, ASSESSMENT_EVIDENCE_ALLOWED_EXTENSIONS } from '@constants/index';
+import { ERROR_CODES, ASSESSMENT_EVIDENCE_ALLOWED_EXTENSIONS, isAdminRole } from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
 import { saveLocalFile, deleteLocalFile } from '@shared/file-storage.util';
 import type { PaginatedResult } from '@common/types/api-response.type';
@@ -42,7 +42,6 @@ const REQUIRED_PRIOR_ROUND: Partial<Record<Round, Round>> = {
   [Round.T1]: Round.T0,
   [Round.T2]: Round.T1,
   [Round.T3]: Round.T1,
-  [Round.T4]: Round.T1,
 };
 
 export interface EvidenceResult {
@@ -72,7 +71,10 @@ export interface AssessmentResult {
   round: AssessmentDetail['round'];
   assessorId: string;
   status: AssessmentDetail['status'];
+  /** The frozen result — null until the round is submitted. */
   totalScore: number | null;
+  /** Weighted score of whatever is scored right now; equals totalScore once submitted. */
+  currentScore: number;
   zone: string | null;
   notes: string | null;
   createdAt: Date;
@@ -327,6 +329,17 @@ export class AssessmentService {
     return this.findOne(assessmentId);
   }
 
+  // The incomplete half of the two save modes: scores already persist on every
+  // keystroke, so a draft save's only job is to record that the round has been
+  // worked on but is not finished — otherwise an assessment sitting at 12/50
+  // is indistinguishable from one nobody has opened.
+  async saveDraft(assessmentId: string, user: JwtPayload): Promise<AssessmentResult> {
+    this.assertCanWrite(user);
+    await this.assertDraftOrInProgress(assessmentId);
+    await this.assessmentRepo.markInProgress(assessmentId, user.sub);
+    return this.findOne(assessmentId);
+  }
+
   async submit(assessmentId: string, user: JwtPayload): Promise<AssessmentResult> {
     this.assertCanWrite(user);
     const assessment = await this.assessmentRepo.findDetailById(assessmentId);
@@ -379,7 +392,10 @@ export class AssessmentService {
   }
 
   private async toResult(assessment: AssessmentDetail): Promise<AssessmentResult> {
-    const allQuestions = await this.dimensionRepo.findAllQuestions();
+    const [allQuestions, dimensions] = await Promise.all([
+      this.dimensionRepo.findAllQuestions(),
+      this.dimensionRepo.findAllDimensions(),
+    ]);
     const scoreByQuestionId = new Map(assessment.scores.map((s) => [s.questionId, s]));
 
     const questions: AssessmentQuestionResult[] = allQuestions.map((question) => {
@@ -397,6 +413,19 @@ export class AssessmentService {
       };
     });
 
+    // The same formula submit() will apply, run over whatever is scored so far
+    // — unscored questions count as 0, exactly as they would at submit. That
+    // makes this converge on totalScore rather than jump when the round is
+    // submitted. Never persisted: only submit() writes a score to the row, so
+    // ranking and dashboard aggregates keep seeing finished rounds only.
+    const currentScore = computeTotalScore(
+      computeDimensionScores(
+        questions.map((q) => ({ dimensionId: q.dimensionId, rawScore: q.rawScore ?? 0 })),
+        dimensions,
+      ),
+      dimensions,
+    );
+
     return {
       id: assessment.id,
       storeId: assessment.storeId,
@@ -404,6 +433,7 @@ export class AssessmentService {
       assessorId: assessment.assessorId,
       status: assessment.status,
       totalScore: assessment.totalScore,
+      currentScore,
       zone: assessment.totalScore !== null ? getZone(assessment.totalScore) : null,
       notes: assessment.notes,
       createdAt: assessment.createdAt,
@@ -465,7 +495,7 @@ export class AssessmentService {
   // Write access is ADMIN/ASSESSOR-only for this phase, matching the store module —
   // mentor/entrepreneur/judge/me_team read-only access is a later epic.
   private assertCanWrite(user: JwtPayload): void {
-    if (user.role !== Role.ADMIN && user.role !== Role.ASSESSOR) {
+    if (!isAdminRole(user.role) && user.role !== Role.ASSESSOR) {
       throw new ForbiddenException(
         ERROR_CODES.PERM.FORBIDDEN,
         'เฉพาะ admin หรือ assessor เท่านั้นที่จัดการการประเมินได้',

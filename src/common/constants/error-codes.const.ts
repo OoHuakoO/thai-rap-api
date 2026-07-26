@@ -38,6 +38,17 @@ export const ERROR_CODES = {
     QUESTION_NOT_FOUND: 'ASSESS_007',
   },
 
+  // News / announcements
+  NEWS: {
+    NOT_FOUND: 'NEWS_001',
+  },
+
+  // Reports
+  RPT: {
+    NOT_FOUND: 'RPT_001',
+    NO_ASSESSMENT: 'RPT_002',
+  },
+
   // Validation
   VALID: {
     BAD_REQUEST: 'VALID_001',

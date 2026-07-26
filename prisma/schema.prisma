@@ -9,12 +9,23 @@ datasource db {
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 enum Role {
+  SUPER_ADMIN
   ADMIN
   ASSESSOR
   MENTOR
   ENTREPRENEUR
   JUDGE
   ME_TEAM
+  // ผู้ใช้ทั่วไป — reads only the store fields the project marks disclosable.
+  VIEWER
+}
+
+// The three categories the brief specifies for the announcement menu:
+// GENERAL = ประชาสัมพันธ์ทั่วไป, EVENT = กิจกรรม, ALERT = การแจ้งเตือน
+enum NewsType {
+  GENERAL
+  EVENT
+  ALERT
 }
 
 enum UserStatus {
@@ -43,7 +54,6 @@ enum Round {
   T1
   T2
   T3
-  T4
 }
 
 enum AssessmentStatus {
@@ -92,6 +102,25 @@ model User {
   assessments    Assessment[]
   assignedStores Store[]       @relation("AssignedAssessor")
   ownedStores    Store[]       @relation("StoreOwner")
+  authoredNews   News[]        @relation("NewsAuthor")
+}
+
+// ประชาสัมพันธ์ — the announcements the dashboard activity feed renders.
+// Created by ADMIN/SUPER_ADMIN; every staff role reads.
+model News {
+  id          String   @id @default(cuid())
+  type        NewsType
+  title       String
+  description String   @db.Text
+  urgent      Boolean  @default(false)
+  publishedAt DateTime @default(now())
+  authorId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author User @relation("NewsAuthor", fields: [authorId], references: [id])
+
+  @@index([publishedAt])
 }
 
 model RefreshToken {

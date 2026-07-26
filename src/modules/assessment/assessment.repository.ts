@@ -136,6 +136,13 @@ export class AssessmentRepository {
     return this.prisma.assessment.update({ where: { id }, data: { assessorId } });
   }
 
+  markInProgress(id: string, assessorId: string): Promise<Assessment> {
+    return this.prisma.assessment.update({
+      where: { id },
+      data: { status: 'IN_PROGRESS', assessorId },
+    });
+  }
+
   private buildScoreUpsertArgs(
     assessmentId: string,
     questionId: number,

@@ -92,7 +92,7 @@ async function bootstrap() {
       )
       .addTag('Auth', 'Authentication — login, logout, token refresh')
       .addTag('Stores', 'Restaurant store profiles')
-      .addTag('Assessment', 'Store assessments (T0–T4)')
+      .addTag('Assessment', 'Store assessments (T0–T3)')
       .build();
 
     const document = SwaggerModule.createDocument(app, config);

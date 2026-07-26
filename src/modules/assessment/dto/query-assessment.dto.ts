@@ -11,7 +11,7 @@ export class QueryAssessmentDto extends PaginationDto {
 
   @ApiPropertyOptional({ enum: Round })
   @IsOptional()
-  @IsEnum(Round, { message: 'round must be one of T0, T1, T2, T3, T4' })
+  @IsEnum(Round, { message: 'round must be one of T0, T1, T2, T3' })
   round?: Round;
 
   @ApiPropertyOptional({ enum: AssessmentStatus })

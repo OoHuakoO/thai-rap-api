@@ -11,6 +11,6 @@ import { DimensionRepository } from './dimension.repository';
   imports: [StoreModule],
   controllers: [AssessmentController, AssessmentHistoryController, DimensionController],
   providers: [AssessmentService, AssessmentRepository, DimensionRepository],
-  exports: [AssessmentService],
+  exports: [AssessmentService, DimensionRepository],
 })
 export class AssessmentModule {}

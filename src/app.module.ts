@@ -17,6 +17,9 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ProvinceModule } from './modules/province/province.module';
 import { StoreModule } from './modules/store/store.module';
 import { AssessmentModule } from './modules/assessment/assessment.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { NewsModule } from './modules/news/news.module';
+import { ReportModule } from './modules/report/report.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -83,6 +86,9 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     ProvinceModule,
     StoreModule,
     AssessmentModule,
+    DashboardModule,
+    NewsModule,
+    ReportModule,
   ],
 
   providers: [

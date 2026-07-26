@@ -23,6 +23,11 @@ const mockedDeleteLocalFile = deleteLocalFile as jest.MockedFunction<typeof dele
 const mockedDeleteLocalDir = deleteLocalDir as jest.MockedFunction<typeof deleteLocalDir>;
 
 const admin: JwtPayload = { sub: 'admin-1', email: 'admin@example.com', role: Role.ADMIN };
+const superAdmin: JwtPayload = {
+  sub: 'super-1',
+  email: 'super@example.com',
+  role: Role.SUPER_ADMIN,
+};
 const assessor: JwtPayload = { sub: 'assessor-1', email: 'a@example.com', role: Role.ASSESSOR };
 const owner: JwtPayload = { sub: 'owner-1', email: 'o@example.com', role: Role.ENTREPRENEUR };
 const otherOwner: JwtPayload = { sub: 'owner-2', email: 'o2@example.com', role: Role.ENTREPRENEUR };
@@ -146,6 +151,16 @@ describe('StoreService', () => {
       expect(result.t3CompletedCount).toBe(5);
       expect(repository.countDistinctStoresByRound).toHaveBeenCalledWith(Round.T2);
       expect(repository.countDistinctStoresByRound).toHaveBeenCalledWith(Round.T3);
+    });
+
+    it('should return stats for SUPER_ADMIN', async () => {
+      repository.countAll.mockResolvedValue(10);
+      repository.countDistinctStoresByRound.mockResolvedValue(5);
+      repository.findDistinctStoreTypes.mockResolvedValue([]);
+
+      const result = await service.getStats(superAdmin);
+
+      expect(result.total).toBe(10);
     });
 
     it('should return stats for ENTREPRENEUR', async () => {

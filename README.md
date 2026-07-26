@@ -127,12 +127,13 @@ All paths below are relative to `/api/v1`.
 | `GET /questions` | List all questions |
 | `GET /assessments` | List assessments |
 | `GET /assessments/:id` | Get assessment (with scores) |
-| `POST /assessments` | Create assessment (T0–T4 round) |
+| `POST /assessments` | Create assessment (T0–T3 round) |
 | `PUT /assessments/:id/scores/:questionId` | Score a question |
 | `POST /assessments/:id/scores/bulk` | Bulk score questions |
 | `POST /assessments/:id/scores/:questionId/evidence` | Upload evidence file for a score |
 | `DELETE /assessments/:id/evidence/:evidenceId` | Delete evidence file |
 | `GET /assessments/:id/scores/progress` | Scoring progress (X of 50 answered) |
+| `PATCH /assessments/:id/draft` | Save an incomplete assessment as a draft (marks it in progress) |
 | `POST /assessments/:id/submit` | Submit assessment (locks scores, runs red-flag detection) |
 | `DELETE /assessments/:id` | Delete assessment |
 

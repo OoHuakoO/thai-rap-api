@@ -203,6 +203,7 @@ describe('AssessmentService', () => {
             remove: jest.fn(),
             updateNotes: jest.fn(),
             reassignAssessor: jest.fn(),
+            markInProgress: jest.fn(),
             upsertScore: jest.fn(),
             bulkUpsertScores: jest.fn(),
             countScored: jest.fn(),
@@ -258,6 +259,33 @@ describe('AssessmentService', () => {
       expect(result.id).toBe('assessment-1');
       expect(result.questions).toHaveLength(50);
       expect(result.questions[0].rawScore).toBe(3);
+    });
+
+    it('should return a live currentScore while totalScore is still unset', async () => {
+      repo.findDetailById.mockResolvedValue(mockAssessmentDetail);
+
+      const result = await service.findOne('assessment-1');
+
+      // Every question scored 3 of 4 — 75% in both dimensions, so the weighted
+      // total is 75 whatever the weights are. Not yet submitted, so totalScore
+      // stays null and zone stays unset.
+      expect(result.currentScore).toBe(75);
+      expect(result.totalScore).toBeNull();
+      expect(result.zone).toBeNull();
+    });
+
+    it('should count unscored questions as zero in currentScore', async () => {
+      repo.findDetailById.mockResolvedValue({
+        ...mockAssessmentDetail,
+        scores: mockFullScores.map((score) =>
+          score.question.dimensionId === 1 ? score : { ...score, rawScore: null },
+        ),
+      });
+
+      const result = await service.findOne('assessment-1');
+
+      // Dimension 1 at 75% carrying weight 30, dimension 2 untouched at 0%.
+      expect(result.currentScore).toBe(22.5);
     });
 
     it('should throw NotFoundException when the assessment does not exist', async () => {
@@ -578,6 +606,44 @@ describe('AssessmentService', () => {
       await expect(
         service.updateNotes('assessment-1', { notes: 'x' }, admin),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe('saveDraft', () => {
+    it('should mark the assessment in progress and return it', async () => {
+      repo.findStatusById.mockResolvedValue(mockStatusRow);
+      repo.markInProgress.mockResolvedValue(mockAssessmentRow);
+      repo.findDetailById.mockResolvedValue(mockAssessmentDetail);
+
+      const result = await service.saveDraft('assessment-1', admin);
+
+      expect(repo.markInProgress).toHaveBeenCalledWith('assessment-1', admin.sub);
+      expect(result.id).toBe('assessment-1');
+    });
+
+    it('should throw ForbiddenException for ENTREPRENEUR', async () => {
+      await expect(service.saveDraft('assessment-1', entrepreneur)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('should throw BadRequestException when the assessment is already submitted', async () => {
+      repo.findStatusById.mockResolvedValue({
+        ...mockStatusRow,
+        status: AssessmentStatus.SUBMITTED,
+      });
+
+      await expect(service.saveDraft('assessment-1', admin)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
+    it('should throw NotFoundException when the assessment does not exist', async () => {
+      repo.findStatusById.mockResolvedValue(null);
+
+      await expect(service.saveDraft('assessment-1', admin)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
   });
 

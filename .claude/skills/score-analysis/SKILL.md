@@ -142,7 +142,7 @@ async submitAssessment(id: string, user: JwtPayload) {
 async getComparison(storeId: string) {
   const assessments = await this.assessmentRepo.findSubmittedByStore(storeId);
   const dimensions = await this.dimensionRepo.findAll();
-  const rounds: Round[] = ['T0','T1','T2','T3','T4'];
+  const rounds: Round[] = ['T0','T1','T2','T3'];
 
   const roundMap = Object.fromEntries(
     rounds.map((r) => {

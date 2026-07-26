@@ -8,6 +8,6 @@ export class RankQueryDto {
   storeId: string;
 
   @ApiProperty({ enum: Round })
-  @IsEnum(Round, { message: 'round must be one of T0, T1, T2, T3, T4' })
+  @IsEnum(Round, { message: 'round must be one of T0, T1, T2, T3' })
   round: Round;
 }

@@ -101,7 +101,6 @@ Paginated response shape:
 | T1 | Post Camp | After camp — measure learning + plan |
 | T2 | Field Audit | On-site verification of 20 selected stores |
 | T3 | Follow-up 1M | 1-month follow-up |
-| T4 | Follow-up 3M | 3-month follow-up |
 
 ---
 

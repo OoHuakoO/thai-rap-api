@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsString, MinLength, MaxLength, IsEnum, IsNotIn } from 'class-validator';
 import { Role } from '@prisma/client';
+import { ADMIN_ROLES } from '@constants/index';
 
 export class RegisterDto {
   @ApiProperty({ example: 'นางสาวศิริวรรณ จันทร์ดี' })
@@ -20,10 +21,10 @@ export class RegisterDto {
   password: string;
 
   @ApiProperty({
-    enum: Object.values(Role).filter((r) => r !== Role.ADMIN),
+    enum: Object.values(Role).filter((r) => !ADMIN_ROLES.includes(r)),
     example: Role.ENTREPRENEUR,
   })
   @IsEnum(Role, { message: 'role must be a valid role' })
-  @IsNotIn([Role.ADMIN], { message: 'Cannot self-register as admin' })
+  @IsNotIn(ADMIN_ROLES, { message: 'Cannot self-register as admin' })
   role: Role;
 }

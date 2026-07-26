@@ -11,6 +11,7 @@ import {
   STORE_TARGET_TOTAL,
   PHOTO_ALLOWED_EXTENSIONS,
   STORE_DOCUMENT_ALLOWED_EXTENSIONS,
+  isAdminRole,
 } from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
 import { saveLocalFile, deleteLocalFile, deleteLocalDir } from '@shared/file-storage.util';
@@ -45,7 +46,7 @@ export class StoreService {
   // Mirrors the web route guard for /stores, which only ADMIN and ENTREPRENEUR
   // can open — other staff roles never see this aggregate on the stores page.
   async getStats(user: JwtPayload): Promise<StoreStats> {
-    if (user.role !== Role.ADMIN && user.role !== Role.ENTREPRENEUR) {
+    if (!isAdminRole(user.role) && user.role !== Role.ENTREPRENEUR) {
       throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง');
     }
     const [
@@ -85,7 +86,7 @@ export class StoreService {
   }
 
   async create(dto: CreateStoreDto, user: JwtPayload): Promise<StoreResult> {
-    if (user.role !== Role.ADMIN && user.role !== Role.ENTREPRENEUR) {
+    if (!isAdminRole(user.role) && user.role !== Role.ENTREPRENEUR) {
       throw new ForbiddenException(
         ERROR_CODES.PERM.FORBIDDEN,
         'เฉพาะ admin หรือ entrepreneur เท่านั้นที่สร้างร้านค้าได้',
@@ -299,13 +300,13 @@ export class StoreService {
   // ADMIN manages every store. ENTREPRENEUR manages only the store they own —
   // ownership is set at creation time via Store.ownerId and never reassigned here.
   private assertCanManage(user: JwtPayload, store: Store): void {
-    if (user.role === Role.ADMIN) return;
+    if (isAdminRole(user.role)) return;
     if (user.role === Role.ENTREPRENEUR && store.ownerId === user.sub) return;
     throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง');
   }
 
   private assertIsAdmin(user: JwtPayload): void {
-    if (user.role !== Role.ADMIN) {
+    if (!isAdminRole(user.role)) {
       throw new ForbiddenException(
         ERROR_CODES.PERM.FORBIDDEN,
         'เฉพาะ admin เท่านั้นที่ทำรายการนี้ได้',

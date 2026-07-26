@@ -75,7 +75,7 @@ List assessments with filtering. Raw `Assessment` rows (no `store`/`assessor` jo
 | Param | Type | Description |
 |---|---|---|
 | `storeId` | string | Filter by store |
-| `round` | Round enum | Filter by round (T0–T4) |
+| `round` | Round enum | Filter by round (T0–T3) |
 | `status` | AssessmentStatus enum | Filter by status |
 
 `assessorId` filtering does not exist on `QueryAssessmentDto`.
@@ -115,6 +115,7 @@ Get full assessment detail: all 50 questions merged with any existing scores (un
   "assessorId": "cluser1",
   "status": "SUBMITTED",
   "totalScore": 48.2,
+  "currentScore": 48.2,
   "zone": "Survival Zone",
   "createdAt": "2026-01-20T00:00:00.000Z",
   "updatedAt": "2026-02-01T00:00:00.000Z",
@@ -161,6 +162,7 @@ Key differences from earlier drafts:
 - There is no top-level `dimensionScores` array anywhere in this response.
 - `recommendation` on a red flag is **always `null`** — `detectRedFlags` (`src/modules/assessment/assessment-scoring.util.ts`) never sets it and nothing else populates the column, even though it exists on the `RedFlag` model.
 - `zone` is computed on the fly from `totalScore` via `getZone()`; it is `null` until the assessment has a `totalScore` (i.e. before first submit).
+- `totalScore` is the frozen result: it stays `null` until submit writes it. `currentScore` is the same weighted formula applied on the fly to whatever is scored right now (unscored questions count as 0), so it tracks progress during assessment and equals `totalScore` once submitted. It is **never persisted** — ranking and dashboard aggregates still read `Assessment.totalScore`, so they keep seeing finished rounds only.
 
 **Errors**
 - `404 ASSESS_001` — Assessment not found
@@ -186,6 +188,22 @@ Create a new draft assessment (one per store per round).
 - `403 PERM_001` — Not ADMIN/ASSESSOR
 - `404 STORE_001` — `storeId` does not exist
 - `409 ASSESS_002` — (storeId, round) already exists
+
+---
+
+### PATCH /assessments/:id/draft
+Save an incomplete assessment as a draft. Scores are already persisted by
+`PUT /assessments/:id/scores/:questionId` as they are entered, so this does not
+carry a body — it flips `status` to `IN_PROGRESS` and reassigns `assessorId` to
+the caller, marking the round as worked-on but unfinished.
+
+**Access:** ADMIN, ASSESSOR
+
+**Response 200** — Full assessment detail, same shape as `GET /assessments/:id`.
+
+**Errors**
+- `400 ASSESS_004` — Cannot edit a submitted assessment
+- `404 ASSESS_001` — Assessment not found
 
 ---
 

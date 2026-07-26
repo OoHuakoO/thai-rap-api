@@ -152,6 +152,12 @@ export class AssessmentController {
     return this.assessmentService.updateNotes(id, dto, user);
   }
 
+  @Patch(':id/draft')
+  @ApiOperation({ summary: 'Save an incomplete assessment as a draft (marks it in progress)' })
+  saveDraft(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.assessmentService.saveDraft(id, user);
+  }
+
   @Post(':id/submit')
   @ApiOperation({ summary: 'Submit an assessment — computes score, zone, and red flags' })
   submit(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
