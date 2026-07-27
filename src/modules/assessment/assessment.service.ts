@@ -6,7 +6,12 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@common/exceptions/app.exception';
-import { ERROR_CODES, ASSESSMENT_EVIDENCE_ALLOWED_EXTENSIONS, isAdminRole } from '@constants/index';
+import {
+  ERROR_CODES,
+  ASSESSMENT_EVIDENCE_ALLOWED_EXTENSIONS,
+  canReadAssessment,
+  isAdminRole,
+} from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
 import { saveLocalFile, deleteLocalFile, deleteLocalDir } from '@shared/file-storage.util';
 import type { PaginatedResult } from '@common/types/api-response.type';
@@ -130,6 +135,7 @@ export class AssessmentService {
     query: QueryAssessmentDto,
     user: JwtPayload,
   ): Promise<PaginatedResult<AssessmentSummaryRow>> {
+    this.assertCanRead(user);
     const { skip, take, page, limit } = normalizePagination(query);
     const ownerId = user.role === Role.ENTREPRENEUR ? user.sub : undefined;
     const [items, total] = await Promise.all([
@@ -140,16 +146,18 @@ export class AssessmentService {
   }
 
   async findOne(id: string, user: JwtPayload): Promise<AssessmentResult> {
+    this.assertCanRead(user);
     const assessment = await this.assessmentRepo.findDetailById(id);
     if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
     // An assessment is only as readable as the store it belongs to — without
     // this, an entrepreneur who knows an id reads another store's full scores.
-    await this.storeService.findOne(assessment.storeId, user);
+    await this.storeService.findAccessible(assessment.storeId, user);
     return this.toResult(assessment);
   }
 
   async getRank(storeId: string, round: Round, user: JwtPayload): Promise<AssessmentRankResult> {
-    const store = await this.storeService.findOne(storeId, user);
+    this.assertCanRead(user);
+    const store = await this.storeService.findAccessible(storeId, user);
     const submitted = await this.assessmentRepo.findSubmittedForRanking(round);
 
     const ranked = [...submitted].sort((a, b) => (b.totalScore ?? 0) - (a.totalScore ?? 0));
@@ -191,7 +199,8 @@ export class AssessmentService {
   }
 
   async getHistory(storeId: string, user: JwtPayload): Promise<AssessmentHistoryItemResult[]> {
-    await this.storeService.findOne(storeId, user);
+    this.assertCanRead(user);
+    await this.storeService.findAccessible(storeId, user);
     const rows = await this.assessmentRepo.findHistoryByStore(storeId);
     return rows.map((row) => ({
       round: row.round,
@@ -205,7 +214,7 @@ export class AssessmentService {
 
   async create(dto: CreateAssessmentDto, user: JwtPayload): Promise<AssessmentResult> {
     this.assertCanWrite(user);
-    await this.storeService.findOne(dto.storeId, user);
+    await this.storeService.findAccessible(dto.storeId, user);
 
     const existing = await this.assessmentRepo.findByStoreAndRound(dto.storeId, dto.round);
     if (existing) {
@@ -353,8 +362,9 @@ export class AssessmentService {
     assessmentId: string,
     user: JwtPayload,
   ): Promise<{ scored: number; total: number }> {
+    this.assertCanRead(user);
     const assessment = await this.findStatusOrThrow(assessmentId);
-    await this.storeService.findOne(assessment.storeId, user);
+    await this.storeService.findAccessible(assessment.storeId, user);
     const [scored, questions] = await Promise.all([
       this.assessmentRepo.countScored(assessmentId),
       this.dimensionService.findAllQuestions(),
@@ -429,7 +439,7 @@ export class AssessmentService {
     this.assertCanWrite(user);
     const assessment = await this.assessmentRepo.findStatusById(id);
     if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
-    await this.storeService.findOne(assessment.storeId, user);
+    await this.storeService.findAccessible(assessment.storeId, user);
     if (assessment.status !== AssessmentStatus.DRAFT) {
       throw new BadRequestException(
         ERROR_CODES.ASSESS.INVALID_STATE,
@@ -550,11 +560,23 @@ export class AssessmentService {
     }
   }
 
-  // Scoring is the assessor's job alone. The project brief ("แบบ 50 ข้อ" §16)
-  // splits the two staff roles by exactly this line: ผู้ติดตาม/Assessor
-  // "ให้คะแนน", ที่ปรึกษา/Mentor "ดูผล" — a mentor reads the finished scores and
-  // turns them into an IDP, and never edits them.
+  // Scoring is the assessor's job alone. "แบบ 50 ข้อ" §3.3 gives ผู้ติดตาม/Assessor
+  // "ประเมินร้าน 50 ข้อ / ให้คะแนน T0–T4"; §3.4 lists ที่ปรึกษา/Mentor's eight
+  // rights and none of them is scoring — it reads the result to build the IDP.
+  // A mentor's own writing surface is a different page entirely (ข้อเสนอแนะจาก
+  // Mentor on the report, หมายเหตุ Mentor on the portfolio, the IDP itself),
+  // none of which exists yet — so do NOT widen this list to give a mentor
+  // somewhere to type.
   private static readonly WRITE_ROLES: string[] = [Role.ASSESSOR];
+
+  // Every read path lands here. StoreService.findOne only ever narrows an
+  // ENTREPRENEUR to its own store, so without this gate any authenticated
+  // account — including a self-registered VIEWER — reads every store's scores.
+  private assertCanRead(user: JwtPayload): void {
+    if (!canReadAssessment(user.role)) {
+      throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์ดูผลการประเมิน');
+    }
+  }
 
   private assertCanWrite(user: JwtPayload): void {
     if (!isAdminRole(user.role) && !AssessmentService.WRITE_ROLES.includes(user.role)) {

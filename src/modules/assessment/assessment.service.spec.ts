@@ -55,6 +55,8 @@ const assessor: JwtPayload = {
   role: Role.ASSESSOR,
 };
 const mentor: JwtPayload = { sub: 'mentor-1', email: 'mentor@example.com', role: Role.MENTOR };
+const viewer: JwtPayload = { sub: 'viewer-1', email: 'viewer@example.com', role: Role.VIEWER };
+const judge: JwtPayload = { sub: 'judge-1', email: 'judge@example.com', role: Role.JUDGE };
 
 // Two dimensions, 25 questions each — enough to exercise the weighted-total
 // and per-dimension-average formulas without mirroring the real 8-dimension seed.
@@ -240,7 +242,7 @@ describe('AssessmentService', () => {
         },
         {
           provide: StoreService,
-          useValue: { findOne: jest.fn().mockResolvedValue(mockStoreResult) },
+          useValue: { findAccessible: jest.fn().mockResolvedValue(mockStoreResult) },
         },
       ],
     }).compile();
@@ -272,11 +274,29 @@ describe('AssessmentService', () => {
       expect(repo.findAll).toHaveBeenCalledWith({}, 0, expect.any(Number), entrepreneur.sub);
       expect(repo.count).toHaveBeenCalledWith({}, entrepreneur.sub);
     });
+
+    // Anyone can self-register as a VIEWER and the account is ACTIVE at once,
+    // so an ungated list published every store's scores to the internet.
+    it.each([
+      ['VIEWER', viewer],
+      ['JUDGE', judge],
+    ])('should throw ForbiddenException for %s', async (_label, user) => {
+      await expect(service.findAll({}, user)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(repo.findAll).not.toHaveBeenCalled();
+    });
   });
 
-  // findOne delegates its RBAC to storeService.findOne on the owning store, so
-  // the forbidden case is asserted as a pass-through rather than re-tested here.
+  // findOne narrows an ENTREPRENEUR through storeService.findAccessible on the owning
+  // store, so that half of the RBAC is asserted as a pass-through rather than
+  // re-tested here; the role allow-list is its own case below.
   describe('findOne', () => {
+    it('should throw ForbiddenException for a role outside the read allow-list', async () => {
+      await expect(service.findOne('assessment-1', viewer)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(repo.findDetailById).not.toHaveBeenCalled();
+    });
+
     it('should return assessment detail with all 50 questions mapped', async () => {
       repo.findDetailById.mockResolvedValue(mockAssessmentDetail);
 
@@ -322,7 +342,7 @@ describe('AssessmentService', () => {
 
     it('should propagate the store access check for an entrepreneur reading another store', async () => {
       repo.findDetailById.mockResolvedValue(mockAssessmentDetail);
-      storeService.findOne.mockRejectedValue(
+      storeService.findAccessible.mockRejectedValue(
         new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง'),
       );
 
@@ -332,7 +352,7 @@ describe('AssessmentService', () => {
     });
   });
 
-  // RBAC for getRank/getHistory is delegated entirely to storeService.findOne
+  // RBAC for getRank/getHistory is delegated entirely to storeService.findAccessible
   // (ENTREPRENEUR can only see their own store) — no separate forbidden/not-found
   // branch inside AssessmentService itself, so we only assert the pass-through.
   describe('getRank', () => {
@@ -352,7 +372,7 @@ describe('AssessmentService', () => {
 
       expect(repo.sumRawScoreByQuestion).toHaveBeenCalledWith(Round.T0, 'ชลบุรี');
 
-      expect(storeService.findOne).toHaveBeenCalledWith('store-1', admin);
+      expect(storeService.findAccessible).toHaveBeenCalledWith('store-1', admin);
       expect(result.overallRank).toBe(2);
       expect(result.overallTotal).toBe(3);
       expect(result.provinceRank).toBe(1);
@@ -398,7 +418,7 @@ describe('AssessmentService', () => {
     });
 
     it('should propagate the error when the store lookup fails (e.g. not found)', async () => {
-      storeService.findOne.mockRejectedValue(
+      storeService.findAccessible.mockRejectedValue(
         new NotFoundException(ERROR_CODES.STORE.NOT_FOUND, 'ไม่พบร้านค้า'),
       );
 
@@ -424,7 +444,7 @@ describe('AssessmentService', () => {
 
       const result = await service.getHistory('store-1', admin);
 
-      expect(storeService.findOne).toHaveBeenCalledWith('store-1', admin);
+      expect(storeService.findAccessible).toHaveBeenCalledWith('store-1', admin);
       expect(result).toHaveLength(1);
       expect(result[0].assessorName).toBe('ผู้ประเมิน');
     });
@@ -533,7 +553,8 @@ describe('AssessmentService', () => {
       await expect(service.updateScore('assessment-1', 1, dto, assessor)).resolves.toBeDefined();
     });
 
-    // §16 of the brief: ผู้ติดตาม/Assessor "ให้คะแนน", ที่ปรึกษา/Mentor "ดูผล".
+    // "แบบ 50 ข้อ" §3.3 vs §3.4: ผู้ติดตาม/Assessor "ให้คะแนน T0–T4", while the
+    // eight rights listed for ที่ปรึกษา/Mentor are all reads plus its own IDP.
     it('should throw ForbiddenException for MENTOR, who only reads the result', async () => {
       await expect(service.updateScore('assessment-1', 1, dto, mentor)).rejects.toBeInstanceOf(
         ForbiddenException,

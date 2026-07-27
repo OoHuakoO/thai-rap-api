@@ -10,6 +10,8 @@ import { ReportService } from './report.service';
 
 const admin: JwtPayload = { sub: 'admin-1', email: 'admin@example.com', role: Role.ADMIN };
 const owner: JwtPayload = { sub: 'owner-1', email: 'owner@example.com', role: Role.ENTREPRENEUR };
+const viewer: JwtPayload = { sub: 'viewer-1', email: 'viewer@example.com', role: Role.VIEWER };
+const judge: JwtPayload = { sub: 'judge-1', email: 'judge@example.com', role: Role.JUDGE };
 
 const store = {
   id: 'store-1',
@@ -87,7 +89,7 @@ describe('ReportService', () => {
         },
         {
           provide: StoreService,
-          useValue: { findOne: jest.fn().mockResolvedValue(store) },
+          useValue: { findAccessible: jest.fn().mockResolvedValue(store) },
         },
       ],
     }).compile();
@@ -124,13 +126,26 @@ describe('ReportService', () => {
     });
 
     it('should let the store access check reject a foreign owner', async () => {
-      storeService.findOne.mockRejectedValue(
+      storeService.findAccessible.mockRejectedValue(
         new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง'),
       );
 
       await expect(service.getRoundReport('store-1', Round.T0, owner)).rejects.toThrow(
         ForbiddenException,
       );
+      expect(repository.findSubmittedRound).not.toHaveBeenCalled();
+    });
+
+    // A report is a rendering of assessment scores, so it answers to the same
+    // allow-list — and a VIEWER is self-registerable, i.e. effectively public.
+    it.each([
+      ['VIEWER', viewer],
+      ['JUDGE', judge],
+    ])('should throw ForbiddenException for %s before touching the store', async (_l, user) => {
+      await expect(service.getRoundReport('store-1', Round.T0, user)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(storeService.findAccessible).not.toHaveBeenCalled();
       expect(repository.findSubmittedRound).not.toHaveBeenCalled();
     });
   });

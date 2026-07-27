@@ -22,7 +22,11 @@ import type { CreateStoreDto } from './dto/create-store.dto';
 import type { UpdateStoreDto, UpdateStoreStatusDto } from './dto/update-store.dto';
 import type { QueryStoreDto } from './dto/query-store.dto';
 import type { StoreStats } from './types/store-stats.type';
-import type { LatestAssessmentInfo, StoreResult } from './types/store-result.type';
+import type {
+  LatestAssessmentInfo,
+  PublicStoreResult,
+  StoreResult,
+} from './types/store-result.type';
 
 @Injectable()
 export class StoreService {
@@ -31,15 +35,24 @@ export class StoreService {
     private readonly provinceService: ProvinceService,
   ) {}
 
-  async findAll(query: QueryStoreDto, user: JwtPayload): Promise<PaginatedResult<StoreResult>> {
+  async findAll(
+    query: QueryStoreDto,
+    user: JwtPayload,
+  ): Promise<PaginatedResult<StoreResult | PublicStoreResult>> {
     const { skip, take, page, limit } = normalizePagination(query);
-    const ownerId = user.role === Role.ENTREPRENEUR ? user.sub : undefined;
+    // Every role browses the whole directory, ENTREPRENEUR included: a store
+    // registered by an admin carries no ownerId, so scoping this list to
+    // ownerId === user.sub showed a freshly-onboarded entrepreneur nothing at
+    // all. Browsing is not managing — update/delete still run through
+    // assertCanManage, and assessment/report reads through findAccessible.
     const [items, total] = await Promise.all([
-      this.storeRepo.findAll(query, skip, take, ownerId),
-      this.storeRepo.count(query, ownerId),
+      this.storeRepo.findAll(query, skip, take, undefined),
+      this.storeRepo.count(query, undefined),
     ]);
     const latestMap = await this.storeRepo.findLatestAssessments(items.map((s) => s.id));
-    const results = items.map((s) => this.toResult(s, [], latestMap.get(s.id)));
+    const results = items
+      .map((s) => this.toResult(s, [], latestMap.get(s.id)))
+      .map((result) => this.applyFieldScope(result, user));
     return buildPaginatedResult(results, total, page, limit);
   }
 
@@ -76,7 +89,22 @@ export class StoreService {
     };
   }
 
-  async findOne(id: string, user: JwtPayload): Promise<StoreResult> {
+  // Controller-facing: browsing the directory. Any signed-in role may open any
+  // store here — narrowed to the fields that role may see. Reading a store is
+  // not the same as being entitled to its assessment: that is findAccessible()
+  // below, which is deliberately the longer name so a new endpoint wired to
+  // `findOne` fails safe rather than handing out another store's scores.
+  async findOne(id: string, user: JwtPayload): Promise<StoreResult | PublicStoreResult> {
+    const store = await this.getStoreOrThrow(id);
+    const latestMap = await this.storeRepo.findLatestAssessments([id]);
+    return this.applyFieldScope(this.toResult(store, store.documents, latestMap.get(id)), user);
+  }
+
+  // The store a caller is entitled to *work with*, not merely look at: an
+  // ENTREPRENEUR gets only the one it owns. Assessment and report reads enter
+  // through here, so this check is what keeps a store's scores, notes and
+  // reports off every other store's account.
+  async findAccessible(id: string, user: JwtPayload): Promise<StoreResult> {
     const store = await this.getStoreOrThrow(id);
     if (user.role === Role.ENTREPRENEUR && store.ownerId !== user.sub) {
       throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง');
@@ -312,6 +340,38 @@ export class StoreService {
         'เฉพาะ admin เท่านั้นที่ทำรายการนี้ได้',
       );
     }
+  }
+
+  // Who gets the disclosable fields only:
+  //   VIEWER       — ผู้ใช้ทั่วไป, never sees a store's private data at all.
+  //   ENTREPRENEUR — on someone else's store. It browses the whole directory
+  //                  (a store an admin registered has no ownerId to match on),
+  //                  but "ผู้ประกอบการจะไม่สามารถเห็นข้อมูลของร้านอื่น" (แบบ 50 ข้อ
+  //                  §3.2) still holds: contact details, revenue, documents and
+  //                  scores stop at its own store.
+  // Rebuilt as a new object rather than deleting keys so a field added to
+  // StoreResult later is private by default — it has to be named here to get out.
+  private applyFieldScope(store: StoreResult, user: JwtPayload): StoreResult | PublicStoreResult {
+    const isOwnStore = store.ownerId !== null && store.ownerId === user.sub;
+    if (user.role !== Role.VIEWER && !(user.role === Role.ENTREPRENEUR && !isOwnStore)) {
+      return store;
+    }
+    return {
+      id: store.id,
+      // Not a display field: it is what lets the client tell "my store" from the
+      // rest and render the edit/delete actions accordingly. An opaque id, so it
+      // discloses nothing about the business behind it.
+      ownerId: store.ownerId,
+      name: store.name,
+      province: store.province,
+      storeType: store.storeType,
+      socialLinks: store.socialLinks,
+      goals: store.goals,
+      menuPhotos: store.menuPhotos,
+      coverUrl: store.coverUrl,
+      storePhotos: store.storePhotos,
+      status: store.status,
+    };
   }
 
   private toDocumentResult(doc: StoreDocument): StoreResult['documents'][number] {

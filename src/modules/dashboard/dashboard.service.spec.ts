@@ -1,8 +1,7 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { NewsType, Role, Round, StoreStatus } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
-import { ForbiddenException } from '@common/exceptions/app.exception';
-import { ERROR_CODES, STORE_TARGET_TOTAL } from '@constants/index';
+import { STORE_TARGET_TOTAL } from '@constants/index';
 import { NewsService } from '@modules/news/news.service';
 import { DashboardService } from './dashboard.service';
 import { DashboardRepository, type StoreScoreRow } from './dashboard.repository';
@@ -48,7 +47,7 @@ describe('DashboardService', () => {
         },
         {
           provide: NewsService,
-          useValue: { findAll: jest.fn().mockResolvedValue([]) },
+          useValue: { listForFeed: jest.fn().mockResolvedValue([]) },
         },
       ],
     }).compile();
@@ -146,11 +145,22 @@ describe('DashboardService', () => {
       expect(result.selectedPercentage).toBe(30);
     });
 
-    it('should reject ENTREPRENEUR', async () => {
-      await expect(service.getKpis(owner)).rejects.toThrow(ForbiddenException);
-      await expect(service.getKpis(owner)).rejects.toMatchObject({
-        code: ERROR_CODES.PERM.FORBIDDEN,
-      });
+    it('should scope every query to the stores an ENTREPRENEUR owns', async () => {
+      await service.getKpis(owner);
+
+      expect(repository.countStores).toHaveBeenCalledWith(owner.sub);
+      expect(repository.countSubmittedByRound).toHaveBeenCalledWith(Round.T0, owner.sub);
+      expect(repository.countStoresByStatus).toHaveBeenCalledWith(owner.sub);
+      expect(repository.findRoundScores).toHaveBeenCalledWith(expect.anything(), owner.sub);
+      expect(repository.findLatestScores).toHaveBeenCalledWith(owner.sub);
+      expect(repository.findLastSubmittedAt).toHaveBeenCalledWith(owner.sub);
+    });
+
+    it('should leave a staff role unscoped', async () => {
+      await service.getKpis(admin);
+
+      expect(repository.countStores).toHaveBeenCalledWith(undefined);
+      expect(repository.findLatestScores).toHaveBeenCalledWith(undefined);
     });
   });
 
@@ -173,8 +183,10 @@ describe('DashboardService', () => {
       await expect(service.getProvinceDistribution(admin)).resolves.toEqual([]);
     });
 
-    it('should reject ENTREPRENEUR', async () => {
-      await expect(service.getProvinceDistribution(owner)).rejects.toThrow(ForbiddenException);
+    it('should count only the provinces an ENTREPRENEUR owns stores in', async () => {
+      await service.getProvinceDistribution(owner);
+
+      expect(repository.countStoresByProvince).toHaveBeenCalledWith(owner.sub);
     });
   });
 
@@ -204,7 +216,7 @@ describe('DashboardService', () => {
 
       const result = await service.getTop20({ round: Round.T2 }, admin);
 
-      expect(repository.findScoresByRound).toHaveBeenCalledWith(Round.T2, 20);
+      expect(repository.findScoresByRound).toHaveBeenCalledWith(Round.T2, 20, undefined);
       expect(result).toHaveLength(1);
     });
 
@@ -228,8 +240,12 @@ describe('DashboardService', () => {
       expect(result[19].rank).toBe(20);
     });
 
-    it('should reject ENTREPRENEUR', async () => {
-      await expect(service.getTop20({}, owner)).rejects.toThrow(ForbiddenException);
+    it('should rank only the stores an ENTREPRENEUR owns', async () => {
+      await service.getTop20({}, owner);
+      expect(repository.findLatestScores).toHaveBeenCalledWith(owner.sub);
+
+      await service.getTop20({ round: Round.T2 }, owner);
+      expect(repository.findScoresByRound).toHaveBeenCalledWith(Round.T2, 20, owner.sub);
     });
   });
 
@@ -283,8 +299,12 @@ describe('DashboardService', () => {
       expect(result.every((step) => step.count === 0 && step.percentage === 0)).toBe(true);
     });
 
-    it('should reject ENTREPRENEUR', async () => {
-      await expect(service.getIncubationProgress(owner)).rejects.toThrow(ForbiddenException);
+    it('should build the funnel from the stores an ENTREPRENEUR owns', async () => {
+      await service.getIncubationProgress(owner);
+
+      expect(repository.countStores).toHaveBeenCalledWith(owner.sub);
+      expect(repository.countStoresByStatus).toHaveBeenCalledWith(owner.sub);
+      expect(repository.countSubmittedByRound).toHaveBeenCalledWith(Round.T0, owner.sub);
     });
   });
 
@@ -299,7 +319,10 @@ describe('DashboardService', () => {
 
       const result = await service.getProvinceComparison({}, admin);
 
-      expect(repository.findProvinceRoundScores).toHaveBeenCalledWith([Round.T0, Round.T1]);
+      expect(repository.findProvinceRoundScores).toHaveBeenCalledWith(
+        [Round.T0, Round.T1],
+        undefined,
+      );
       expect(result).toEqual([
         {
           province: 'จันทบุรี',
@@ -397,7 +420,10 @@ describe('DashboardService', () => {
 
       const result = await service.getProvinceComparison({ from: Round.T2, to: Round.T3 }, admin);
 
-      expect(repository.findProvinceRoundScores).toHaveBeenCalledWith([Round.T2, Round.T3]);
+      expect(repository.findProvinceRoundScores).toHaveBeenCalledWith(
+        [Round.T2, Round.T3],
+        undefined,
+      );
       expect(result).toEqual([
         {
           province: 'ระยอง',
@@ -413,8 +439,13 @@ describe('DashboardService', () => {
       await expect(service.getProvinceComparison({}, admin)).resolves.toEqual([]);
     });
 
-    it('should reject ENTREPRENEUR', async () => {
-      await expect(service.getProvinceComparison({}, owner)).rejects.toThrow(ForbiddenException);
+    it('should compare only the stores an ENTREPRENEUR owns', async () => {
+      await service.getProvinceComparison({}, owner);
+
+      expect(repository.findProvinceRoundScores).toHaveBeenCalledWith(
+        [Round.T0, Round.T1],
+        owner.sub,
+      );
     });
   });
 
@@ -446,8 +477,10 @@ describe('DashboardService', () => {
       ]);
     });
 
-    it('should reject ENTREPRENEUR', async () => {
-      await expect(service.getStoreRoundScores(owner)).rejects.toThrow(ForbiddenException);
+    it('should list only the stores an ENTREPRENEUR owns', async () => {
+      await service.getStoreRoundScores(owner);
+
+      expect(repository.findStoreRoundScores).toHaveBeenCalledWith(owner.sub);
     });
   });
 
@@ -470,8 +503,10 @@ describe('DashboardService', () => {
       expect(buffer.subarray(0, 2).toString()).toBe('PK');
     });
 
-    it('should reject ENTREPRENEUR', async () => {
-      await expect(service.exportStoreRoundScores(owner)).rejects.toThrow(ForbiddenException);
+    it('should export only the stores an ENTREPRENEUR owns', async () => {
+      await service.exportStoreRoundScores(owner);
+
+      expect(repository.findStoreRoundScores).toHaveBeenCalledWith(owner.sub);
     });
   });
 
@@ -503,7 +538,7 @@ describe('DashboardService', () => {
     });
 
     it('should append published announcements mapped to their feed type', async () => {
-      newsService.findAll.mockResolvedValue([
+      newsService.listForFeed.mockResolvedValue([
         {
           id: 'news-1',
           type: NewsType.EVENT,
@@ -535,7 +570,7 @@ describe('DashboardService', () => {
 
     it('should keep auto-generated warnings ahead of announcements', async () => {
       repository.countStoresAwaitingT1.mockResolvedValue(36);
-      newsService.findAll.mockResolvedValue([
+      newsService.listForFeed.mockResolvedValue([
         {
           id: 'news-1',
           type: NewsType.GENERAL,
@@ -554,8 +589,11 @@ describe('DashboardService', () => {
       expect(result[1]).toMatchObject({ type: 'announcement', title: 'ประกาศทั่วไป' });
     });
 
-    it('should reject ENTREPRENEUR', async () => {
-      await expect(service.getActivities(owner)).rejects.toThrow(ForbiddenException);
+    it('should raise follow-ups only for the stores an ENTREPRENEUR owns', async () => {
+      await service.getActivities(owner);
+
+      expect(repository.countStoresAwaitingT1).toHaveBeenCalledWith(owner.sub);
+      expect(repository.countUnresolvedRedFlags).toHaveBeenCalledWith(owner.sub);
     });
   });
 
@@ -564,8 +602,8 @@ describe('DashboardService', () => {
       await expect(service.getReportsStatus(admin)).resolves.toEqual([]);
     });
 
-    it('should reject ENTREPRENEUR', async () => {
-      await expect(service.getReportsStatus(owner)).rejects.toThrow(ForbiddenException);
+    it('should return the same empty list to an ENTREPRENEUR', async () => {
+      await expect(service.getReportsStatus(owner)).resolves.toEqual([]);
     });
   });
 });

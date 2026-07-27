@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Round } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
-import { NotFoundException } from '@common/exceptions/app.exception';
-import { ERROR_CODES } from '@constants/index';
+import { ForbiddenException, NotFoundException } from '@common/exceptions/app.exception';
+import { ERROR_CODES, canReadAssessment } from '@constants/index';
 import { DimensionService } from '@modules/assessment/dimension.service';
 import {
   computeDimensionScores,
@@ -36,9 +36,9 @@ export class ReportService {
     private readonly storeService: StoreService,
   ) {}
 
-  // Access is delegated to storeService.findOne, which already throws for an
-  // ENTREPRENEUR reading a store they don't own — that single check is what
-  // makes "ร้านเข้าถึงได้เฉพาะของตนเอง" true for every report below.
+  // Access is delegated to loadStore below, which throws for an ENTREPRENEUR
+  // reading a store it does not own — that single check is what makes
+  // "ร้านเข้าถึงได้เฉพาะของตนเอง" true for every report here.
   async getRoundReport(storeId: string, round: Round, user: JwtPayload): Promise<RoundReport> {
     const store = await this.loadStore(storeId, user);
 
@@ -142,8 +142,14 @@ export class ReportService {
     return format === 'pdf' ? buildOverviewReportPdf(report) : buildOverviewReportWorkbook(report);
   }
 
+  // Every report — round, overview, and both Excel/PDF exports — enters through
+  // here, so this is the one place the role gate has to hold. A report is just a
+  // rendering of assessment scores, so it answers to the same allow-list.
   private async loadStore(storeId: string, user: JwtPayload): Promise<ReportStore> {
-    const store = await this.storeService.findOne(storeId, user);
+    if (!canReadAssessment(user.role)) {
+      throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์ดูรายงานผลการประเมิน');
+    }
+    const store = await this.storeService.findAccessible(storeId, user);
     return {
       id: store.id,
       name: store.name,

@@ -31,6 +31,7 @@ const superAdmin: JwtPayload = {
 const assessor: JwtPayload = { sub: 'assessor-1', email: 'a@example.com', role: Role.ASSESSOR };
 const owner: JwtPayload = { sub: 'owner-1', email: 'o@example.com', role: Role.ENTREPRENEUR };
 const otherOwner: JwtPayload = { sub: 'owner-2', email: 'o2@example.com', role: Role.ENTREPRENEUR };
+const viewer: JwtPayload = { sub: 'viewer-1', email: 'v@example.com', role: Role.VIEWER };
 
 const mockStore: Store & { documents: StoreDocument[] } = {
   id: 'store-1',
@@ -128,13 +129,43 @@ describe('StoreService', () => {
       expect(repository.findAll).toHaveBeenCalledWith({}, 0, 10, undefined);
     });
 
-    it('should scope to owned stores for ENTREPRENEUR', async () => {
+    it('should narrow every row to the disclosable fields for VIEWER', async () => {
+      repository.findAll.mockResolvedValue([mockStore]);
+      repository.count.mockResolvedValue(1);
+
+      const result = await service.findAll({}, viewer);
+
+      expect(result.items[0]).not.toHaveProperty('phone');
+      expect(result.items[0]).not.toHaveProperty('avgRevenueMin');
+      expect(result.items[0]).not.toHaveProperty('latestScore');
+      expect(result.items[0]).toMatchObject({ id: 'store-1', name: 'ร้านทดสอบ' });
+    });
+
+    // A store an admin registered carries no ownerId, so scoping this list to
+    // the caller left a freshly-onboarded entrepreneur with an empty directory.
+    it('should list every store for ENTREPRENEUR, not only the owned ones', async () => {
       repository.findAll.mockResolvedValue([]);
       repository.count.mockResolvedValue(0);
 
       await service.findAll({}, owner);
 
-      expect(repository.findAll).toHaveBeenCalledWith({}, 0, 10, owner.sub);
+      expect(repository.findAll).toHaveBeenCalledWith({}, 0, 10, undefined);
+      expect(repository.count).toHaveBeenCalledWith({}, undefined);
+    });
+
+    // Shared directory, private records: the row for someone else's store comes
+    // back stripped, the entrepreneur's own row does not.
+    it('should strip the rows an ENTREPRENEUR does not own', async () => {
+      repository.findAll.mockResolvedValue([
+        mockStore,
+        { ...mockStore, id: 'store-2', ownerId: 'owner-9' },
+      ]);
+      repository.count.mockResolvedValue(2);
+
+      const result = await service.findAll({}, owner);
+
+      expect(result.items[0]).toMatchObject({ id: 'store-1', phone: '0812345678' });
+      expect(result.items[1]).not.toHaveProperty('phone');
     });
   });
 
@@ -194,10 +225,20 @@ describe('StoreService', () => {
       await expect(service.findOne('missing', admin)).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it('should throw ForbiddenException for ENTREPRENEUR who does not own the store', async () => {
+    // Browsing is open to every role; being entitled to the store's assessment
+    // is not — that split is findOne vs findAccessible.
+    it('should let ENTREPRENEUR open a store it does not own', async () => {
       repository.findById.mockResolvedValue(mockStore);
 
-      await expect(service.findOne('store-1', otherOwner)).rejects.toBeInstanceOf(
+      const result = await service.findOne('store-1', otherOwner);
+
+      expect(result.id).toBe('store-1');
+    });
+
+    it('should still refuse findAccessible to an ENTREPRENEUR who does not own the store', async () => {
+      repository.findById.mockResolvedValue(mockStore);
+
+      await expect(service.findAccessible('store-1', otherOwner)).rejects.toBeInstanceOf(
         ForbiddenException,
       );
     });
@@ -208,6 +249,61 @@ describe('StoreService', () => {
       const result = await service.findOne('store-1', assessor);
 
       expect(result.id).toBe('store-1');
+    });
+
+    // ผู้ใช้ทั่วไป is self-registerable and ACTIVE at once, so anything left in
+    // this response is effectively published. Mirrors PUBLIC_STORE_FIELDS in
+    // ../thai-rap-web/constants/permissions.ts.
+    it('should return only the disclosable fields for VIEWER', async () => {
+      repository.findById.mockResolvedValue({ ...mockStore, documents: [mockDocument] });
+
+      const result = await service.findOne('store-1', viewer);
+
+      expect(Object.keys(result).sort()).toEqual(
+        [
+          'coverUrl',
+          'goals',
+          'id',
+          'menuPhotos',
+          'name',
+          'ownerId',
+          'province',
+          'socialLinks',
+          'status',
+          'storePhotos',
+          'storeType',
+        ].sort(),
+      );
+    });
+
+    // "ผู้ประกอบการจะไม่สามารถเห็นข้อมูลของร้านอื่น" (แบบ 50 ข้อ §3.2). It still
+    // opens the row — the directory is shared — but not what is inside it.
+    it('should hide another store private fields from an ENTREPRENEUR', async () => {
+      repository.findById.mockResolvedValue({ ...mockStore, documents: [mockDocument] });
+
+      const result = await service.findOne('store-1', otherOwner);
+
+      expect(result).not.toHaveProperty('phone');
+      expect(result).not.toHaveProperty('avgRevenueMin');
+      expect(result).not.toHaveProperty('documents');
+      expect(result).not.toHaveProperty('latestScore');
+      expect(result).toMatchObject({ id: 'store-1', name: 'ร้านทดสอบ' });
+    });
+
+    it('should return the full record to the ENTREPRENEUR that owns the store', async () => {
+      repository.findById.mockResolvedValue({ ...mockStore, documents: [mockDocument] });
+
+      const result = await service.findOne('store-1', owner);
+
+      expect(result).toMatchObject({ phone: '0812345678', avgRevenueMin: 10000 });
+    });
+
+    it('should keep the full record for VIEWER out of findAccessible callers', async () => {
+      repository.findById.mockResolvedValue(mockStore);
+
+      const result = await service.findAccessible('store-1', viewer);
+
+      expect(result.phone).toBe('0812345678');
     });
   });
 

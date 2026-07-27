@@ -12,18 +12,23 @@ import type { NewsItem } from './types/news.type';
 export class NewsService {
   constructor(private readonly newsRepo: NewsRepository) {}
 
-  // Reads take no user: entrepreneurs see the announcement feed on their own
-  // dashboard too, so every authenticated role may read. Only writes are gated.
-  async findAll(query: QueryNewsDto): Promise<NewsItem[]> {
-    const rows = await this.newsRepo.findAll({
-      type: query.type,
-      limit: query.limit ?? NEWS_DEFAULT_LIMIT,
-    });
-    return rows.map(toNewsItem);
+  // The /news endpoints are admin-only, matching the ข่าวประชาสัมพันธ์ page in
+  // the web app. listForFeed() below stays ungated on purpose: the dashboard
+  // activity feed surfaces announcements to every role and calls it directly,
+  // never through this controller.
+  async findAll(query: QueryNewsDto, user: JwtPayload): Promise<NewsItem[]> {
+    this.assertCanRead(user);
+    return this.listForFeed(query.limit ?? NEWS_DEFAULT_LIMIT, query.type);
   }
 
-  async findOne(id: string): Promise<NewsItem> {
+  async findOne(id: string, user: JwtPayload): Promise<NewsItem> {
+    this.assertCanRead(user);
     return toNewsItem(await this.getNewsOrThrow(id));
+  }
+
+  async listForFeed(limit: number, type?: QueryNewsDto['type']): Promise<NewsItem[]> {
+    const rows = await this.newsRepo.findAll({ type, limit });
+    return rows.map(toNewsItem);
   }
 
   async create(dto: CreateNewsDto, user: JwtPayload): Promise<NewsItem> {
@@ -64,6 +69,15 @@ export class NewsService {
     const row = await this.newsRepo.findById(id);
     if (!row) throw new NotFoundException(ERROR_CODES.NEWS.NOT_FOUND, 'ไม่พบข่าวประชาสัมพันธ์');
     return row;
+  }
+
+  private assertCanRead(user: JwtPayload): void {
+    if (!isAdminRole(user.role)) {
+      throw new ForbiddenException(
+        ERROR_CODES.PERM.FORBIDDEN,
+        'เฉพาะ admin หรือ super admin เท่านั้นที่ดูข่าวประชาสัมพันธ์ได้',
+      );
+    }
   }
 
   private assertCanWrite(user: JwtPayload): void {
