@@ -157,32 +157,29 @@ export class AssessmentService {
     const provinceRanked = ranked.filter((a) => a.store.province === store.province);
     const provinceIndex = provinceRanked.findIndex((a) => a.storeId === storeId);
 
-    const { dimensions, questions } = await this.dimensionService.findScoringContext();
+    const [{ dimensions, questions }, questionSums] = await Promise.all([
+      this.dimensionService.findScoringContext(),
+      this.assessmentRepo.sumRawScoreByQuestion(round, store.province),
+    ]);
     const dimensionIdByQuestionId = new Map(questions.map((q) => [q.id, q.dimensionId]));
 
-    const dimensionPctSums = new Map<number, number>(dimensions.map((d) => [d.id, 0]));
-    for (const assessment of provinceRanked) {
-      const scoredQuestions = assessment.scores.map((s) => ({
-        dimensionId: dimensionIdByQuestionId.get(s.questionId) ?? -1,
-        rawScore: s.rawScore ?? 0,
-      }));
-      const dimensionPcts = computeDimensionScores(scoredQuestions, dimensions);
-      for (const dimension of dimensions) {
-        dimensionPctSums.set(
-          dimension.id,
-          (dimensionPctSums.get(dimension.id) ?? 0) + (dimensionPcts.get(dimension.id) ?? 0),
-        );
-      }
+    const rawSumByDimension = new Map<number, number>(dimensions.map((d) => [d.id, 0]));
+    for (const { questionId, rawScoreSum } of questionSums) {
+      const dimensionId = dimensionIdByQuestionId.get(questionId);
+      if (dimensionId === undefined) continue;
+      rawSumByDimension.set(dimensionId, (rawSumByDimension.get(dimensionId) ?? 0) + rawScoreSum);
     }
 
-    const dimensionAverages: DimensionAverageResult[] = dimensions.map((dimension) => ({
-      dimensionId: dimension.id,
-      avgPct:
-        provinceRanked.length === 0
-          ? 0
-          : Math.round(((dimensionPctSums.get(dimension.id) ?? 0) / provinceRanked.length) * 10) /
-            10,
-    }));
+    // Every assessment in the cohort divides by the same maxTotal, so averaging
+    // the per-assessment percentages is the same number as dividing one summed
+    // total by (cohort size × maxTotal) — and it needs one aggregate row per
+    // question rather than every score row in the province.
+    const dimensionAverages: DimensionAverageResult[] = dimensions.map((dimension) => {
+      const denominator = provinceRanked.length * dimension.maxTotal;
+      const avgPct =
+        denominator === 0 ? 0 : ((rawSumByDimension.get(dimension.id) ?? 0) / denominator) * 100;
+      return { dimensionId: dimension.id, avgPct: Math.round(avgPct * 10) / 10 };
+    });
 
     return {
       overallRank: overallIndex === -1 ? null : overallIndex + 1,
@@ -314,9 +311,19 @@ export class AssessmentService {
     this.assertCanWrite(user);
     await this.assertDraftOrInProgress(assessmentId);
 
-    const questionById = new Map(
-      (await this.dimensionService.findAllQuestions()).map((q) => [q.id, q]),
-    );
+    const questions = await this.dimensionService.findAllQuestions();
+    // The DTO caps the array at a fixed request size; this is the real bound —
+    // scoring more entries than there are questions can only mean duplicates or
+    // junk, and every entry costs one upsert inside a single transaction.
+    if (dto.scores.length > questions.length) {
+      throw new BadRequestException(
+        ERROR_CODES.VALID.BAD_REQUEST,
+        `ส่งคะแนนได้ไม่เกิน ${questions.length} ข้อต่อครั้ง`,
+      );
+    }
+
+    const questionById = new Map(questions.map((q) => [q.id, q]));
+    const seenQuestionIds = new Set<number>();
     for (const item of dto.scores) {
       const question = questionById.get(item.questionId);
       if (!question) {
@@ -325,6 +332,15 @@ export class AssessmentService {
           `ไม่พบคำถามหมายเลข ${item.questionId}`,
         );
       }
+      // Two entries for one question would upsert the same row twice in the
+      // same transaction, and which score survives depends on array order.
+      if (seenQuestionIds.has(item.questionId)) {
+        throw new BadRequestException(
+          ERROR_CODES.VALID.BAD_REQUEST,
+          `ส่งคะแนนซ้ำสำหรับคำถามหมายเลข ${item.questionId}`,
+        );
+      }
+      seenQuestionIds.add(item.questionId);
       this.assertScoreWithinMax(item.rawScore, question);
     }
 
@@ -534,16 +550,17 @@ export class AssessmentService {
     }
   }
 
-  // Mirrors ASSESSMENT_WRITE in the web's ROLE_PERMISSIONS: admin roles,
-  // ASSESSOR and MENTOR — the brief gives a mentor the same evaluation duty as
-  // an assessor. ENTREPRENEUR/JUDGE/ME_TEAM/VIEWER stay read-only.
-  private static readonly WRITE_ROLES: string[] = [Role.ASSESSOR, Role.MENTOR];
+  // Scoring is the assessor's job alone. The project brief ("แบบ 50 ข้อ" §16)
+  // splits the two staff roles by exactly this line: ผู้ติดตาม/Assessor
+  // "ให้คะแนน", ที่ปรึกษา/Mentor "ดูผล" — a mentor reads the finished scores and
+  // turns them into an IDP, and never edits them.
+  private static readonly WRITE_ROLES: string[] = [Role.ASSESSOR];
 
   private assertCanWrite(user: JwtPayload): void {
     if (!isAdminRole(user.role) && !AssessmentService.WRITE_ROLES.includes(user.role)) {
       throw new ForbiddenException(
         ERROR_CODES.PERM.FORBIDDEN,
-        'เฉพาะ admin, assessor หรือ mentor เท่านั้นที่จัดการการประเมินได้',
+        'เฉพาะ admin หรือผู้ประเมินเท่านั้นที่จัดการการประเมินได้',
       );
     }
   }

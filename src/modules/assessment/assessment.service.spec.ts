@@ -49,6 +49,11 @@ const entrepreneur: JwtPayload = {
   email: 'owner@example.com',
   role: Role.ENTREPRENEUR,
 };
+const assessor: JwtPayload = {
+  sub: 'assessor-1',
+  email: 'assessor@example.com',
+  role: Role.ASSESSOR,
+};
 const mentor: JwtPayload = { sub: 'mentor-1', email: 'mentor@example.com', role: Role.MENTOR };
 
 // Two dimensions, 25 questions each — enough to exercise the weighted-total
@@ -180,7 +185,6 @@ function buildRankingAssessment(
     storeId,
     totalScore,
     store: { province },
-    scores: mockQuestions.map((q) => ({ questionId: q.id, rawScore: 3 })),
   };
 }
 
@@ -203,6 +207,7 @@ describe('AssessmentService', () => {
             findByStoreAndRound: jest.fn(),
             findHistoryByStore: jest.fn(),
             findSubmittedForRanking: jest.fn(),
+            sumRawScoreByQuestion: jest.fn().mockResolvedValue([]),
             findDetailById: jest.fn(),
             findStatusById: jest.fn(),
             create: jest.fn(),
@@ -337,8 +342,15 @@ describe('AssessmentService', () => {
         buildRankingAssessment('store-1', 300, 'ชลบุรี'),
         buildRankingAssessment('store-2', 250, 'ชลบุรี'),
       ]);
+      // Both ชลบุรี stores scored 3 on every question, so the database returns
+      // 3 + 3 per question — 75% of full marks in each dimension.
+      repo.sumRawScoreByQuestion.mockResolvedValue(
+        mockQuestions.map((q) => ({ questionId: q.id, rawScoreSum: 6 })),
+      );
 
       const result = await service.getRank('store-1', Round.T0, admin);
+
+      expect(repo.sumRawScoreByQuestion).toHaveBeenCalledWith(Round.T0, 'ชลบุรี');
 
       expect(storeService.findOne).toHaveBeenCalledWith('store-1', admin);
       expect(result.overallRank).toBe(2);
@@ -348,6 +360,29 @@ describe('AssessmentService', () => {
       expect(result.dimensionAverages).toEqual([
         { dimensionId: 1, avgPct: 75 },
         { dimensionId: 2, avgPct: 75 },
+      ]);
+    });
+
+    // The aggregate replaces averaging per-assessment percentages; the two are
+    // the same number only because every assessment shares one denominator.
+    it('should average the province sums over the cohort size, not over the rows returned', async () => {
+      repo.findSubmittedForRanking.mockResolvedValue([
+        buildRankingAssessment('store-1', 300, 'ชลบุรี'),
+        buildRankingAssessment('store-2', 250, 'ชลบุรี'),
+      ]);
+      // Only dimension 1 was scored, and only by one of the two stores: 25
+      // questions × 4 = 100 raw out of a cohort maximum of 2 × 100.
+      repo.sumRawScoreByQuestion.mockResolvedValue(
+        mockQuestions
+          .filter((q) => q.dimensionId === 1)
+          .map((q) => ({ questionId: q.id, rawScoreSum: 4 })),
+      );
+
+      const result = await service.getRank('store-1', Round.T0, admin);
+
+      expect(result.dimensionAverages).toEqual([
+        { dimensionId: 1, avgPct: 50 },
+        { dimensionId: 2, avgPct: 0 },
       ]);
     });
 
@@ -490,12 +525,20 @@ describe('AssessmentService', () => {
       expect(repo.upsertScore).not.toHaveBeenCalled();
     });
 
-    it('should let a MENTOR score, matching the web ASSESSMENT_WRITE permission', async () => {
+    it('should let an ASSESSOR score', async () => {
       repo.findStatusById.mockResolvedValue(mockStatusRow);
       dimensionService.findQuestionById.mockResolvedValue(mockQuestions[0]);
       repo.upsertScore.mockResolvedValue(mockScoreRow);
 
-      await expect(service.updateScore('assessment-1', 1, dto, mentor)).resolves.toBeDefined();
+      await expect(service.updateScore('assessment-1', 1, dto, assessor)).resolves.toBeDefined();
+    });
+
+    // §16 of the brief: ผู้ติดตาม/Assessor "ให้คะแนน", ที่ปรึกษา/Mentor "ดูผล".
+    it('should throw ForbiddenException for MENTOR, who only reads the result', async () => {
+      await expect(service.updateScore('assessment-1', 1, dto, mentor)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(repo.upsertScore).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException when rawScore exceeds the question maxScore', async () => {
@@ -609,6 +652,38 @@ describe('AssessmentService', () => {
       await expect(
         service.bulkUpdateScores('assessment-1', dto, entrepreneur),
       ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    // Each entry becomes one upsert inside a single transaction, so the array
+    // length is what bounds how long Score rows stay locked.
+    it('should reject a payload longer than the question list before touching the database', async () => {
+      repo.findStatusById.mockResolvedValue(mockStatusRow);
+      const oversized: BulkScoreDto = {
+        scores: Array.from({ length: mockQuestions.length + 1 }, (_, i) => ({
+          questionId: (i % mockQuestions.length) + 1,
+          rawScore: 3,
+        })),
+      };
+
+      await expect(
+        service.bulkUpdateScores('assessment-1', oversized, admin),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.bulkUpsertScores).not.toHaveBeenCalled();
+    });
+
+    it('should reject two entries for the same question', async () => {
+      repo.findStatusById.mockResolvedValue(mockStatusRow);
+      const duplicated: BulkScoreDto = {
+        scores: [
+          { questionId: 1, rawScore: 3 },
+          { questionId: 1, rawScore: 0 },
+        ],
+      };
+
+      await expect(
+        service.bulkUpdateScores('assessment-1', duplicated, admin),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.bulkUpsertScores).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException when the assessment is already submitted', async () => {

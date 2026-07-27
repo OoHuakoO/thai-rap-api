@@ -21,6 +21,10 @@ const assessmentDetailInclude = {
 // (Field Audit, IDP, final follow-up) are separate program stages, not
 // per-round labels, and are set elsewhere (manual status update / future
 // ranking-finalize flow), not here.
+// Same list as COMPLETED_STATUSES in AssessmentService — a round counts as
+// finished at SUBMITTED or APPROVED, for ranking as much as for editing.
+const COMPLETED_STATUSES = [AssessmentStatus.SUBMITTED, AssessmentStatus.APPROVED];
+
 const ROUND_COMPLETION_STATUS: Partial<Record<Round, StoreStatus>> = {
   T0: StoreStatus.T0_COMPLETED,
   T1: StoreStatus.T1_COMPLETED,
@@ -37,14 +41,20 @@ export type AssessmentDetail = Prisma.AssessmentGetPayload<{
   include: typeof assessmentDetailInclude;
 }>;
 
+// Ranking reads one row per store, never its 50 scores — the dimension
+// averages come back pre-summed from the database instead (sumRawScoreByQuestion).
 const rankingSelect = {
   storeId: true,
   totalScore: true,
   store: { select: { province: true } },
-  scores: { select: { questionId: true, rawScore: true } },
 } satisfies Prisma.AssessmentSelect;
 
 export type AssessmentForRanking = Prisma.AssessmentGetPayload<{ select: typeof rankingSelect }>;
+
+export interface QuestionScoreSum {
+  questionId: number;
+  rawScoreSum: number;
+}
 
 const historySelect = {
   round: true,
@@ -131,9 +141,32 @@ export class AssessmentRepository {
   // totalScore, it doesn't withdraw the store from the round's ranking.
   findSubmittedForRanking(round: Round): Promise<AssessmentForRanking[]> {
     return this.prisma.assessment.findMany({
-      where: { round, status: { in: [AssessmentStatus.SUBMITTED, AssessmentStatus.APPROVED] } },
+      where: { round, status: { in: COMPLETED_STATUSES } },
       select: rankingSelect,
     });
+  }
+
+  // Σ rawScore per question across a province's finished rounds, aggregated in
+  // the database. The caller only needs those sums to average the dimensions,
+  // so this returns one row per question instead of one row per score —
+  // stores × 50 rows over the wire become 50, whatever the cohort size.
+  async sumRawScoreByQuestion(round: Round, province: string): Promise<QuestionScoreSum[]> {
+    const grouped = await this.prisma.score.groupBy({
+      by: ['questionId'],
+      where: {
+        rawScore: { not: null },
+        assessment: {
+          round,
+          status: { in: COMPLETED_STATUSES },
+          store: { province },
+        },
+      },
+      _sum: { rawScore: true },
+    });
+    return grouped.map((row) => ({
+      questionId: row.questionId,
+      rawScoreSum: row._sum.rawScore ?? 0,
+    }));
   }
 
   findDetailById(id: string): Promise<AssessmentDetail | null> {

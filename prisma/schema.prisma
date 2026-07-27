@@ -162,6 +162,11 @@ model Store {
   assessments   Assessment[]
   documents     StoreDocument[]
   assignedUsers User[]          @relation("AssignedAssessor")
+
+  // province leads because it is the selective one and is filtered on its own
+  // by the province-cohort aggregate in sumRawScoreByQuestion; status extends
+  // the same index for the /stores list, which filters on both together.
+  @@index([province, status])
 }
 
 model StoreDocument {
@@ -222,6 +227,10 @@ model Assessment {
   redFlags RedFlag[]
 
   @@unique([storeId, round])
+  // Ranking reads one cohort per call: every finished assessment in a round.
+  // AssessmentRepository.findSubmittedForRanking filters on exactly this pair,
+  // and sumRawScoreByQuestion joins Score through the same predicate.
+  @@index([round, status])
 }
 
 model Score {

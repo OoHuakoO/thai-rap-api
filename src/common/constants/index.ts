@@ -1,5 +1,5 @@
 export { ERROR_CODES } from './error-codes.const';
-export { ADMIN_ROLES, isAdminRole } from './role.const';
+export { ADMIN_ROLES, isAdminRole, SELF_REGISTERABLE_ROLES } from './role.const';
 export { STORE_TARGET_TOTAL } from './store.const';
 export {
   FILE_MAX_SIZE_BYTES,

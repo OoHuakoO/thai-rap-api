@@ -52,10 +52,12 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 - `GET /stores/stats` is staff-only (403 `PERM_001` for ENTREPRENEUR). Web
   `useStoreStats` (`features/store/hooks/use-stores.ts`) calls it for every
   role; entrepreneur degrades to a hidden stats bar and empty filter dropdowns.
-- Assessment writes are ADMIN / ASSESSOR / MENTOR
-  (`AssessmentService.WRITE_ROLES`), matching `ASSESSMENT_WRITE` in the web's
-  `ROLE_PERMISSIONS`. A role holding `assessment:read` alone must not trigger
-  the auto-create in `useAssessment` — the 403 sends the whole page to `/403`.
+- Assessment writes are ADMIN / ASSESSOR only (`AssessmentService.WRITE_ROLES`),
+  matching `ASSESSMENT_WRITE` in the web's `ROLE_PERMISSIONS`. The brief
+  ("แบบ 50 ข้อ" §16) splits the staff roles here: ผู้ติดตาม/Assessor "ให้คะแนน",
+  ที่ปรึกษา/Mentor "ดูผล" — a MENTOR reads finished scores to build the IDP and
+  never edits them. A role holding `assessment:read` alone must not trigger the
+  auto-create in `useAssessment` — the 403 sends the whole page to `/403`.
 - `GET /assessments` and `GET /assessments/:id` are scoped by store ownership;
   an ENTREPRENEUR only ever sees their own store's rounds.
 - A round counts as finished at `SUBMITTED` **or** `APPROVED`
