@@ -132,7 +132,7 @@ const DIMENSIONS: DimensionSeed[] = [
   },
 ];
 
-// THAI-RAP covers ภาคตะวันออก only — 7 provinces, not the full 77.
+// THAI-RAP covers ภาคตะวันออก only — 8 provinces, not the full 77.
 const PROVINCES: string[] = [
   'จันทบุรี',
   'ฉะเชิงเทรา',
@@ -141,11 +141,12 @@ const PROVINCES: string[] = [
   'ปราจีนบุรี',
   'ระยอง',
   'สระแก้ว',
+  'นครนายก',
 ];
 
 async function seedProvinces(): Promise<void> {
-  if (PROVINCES.length !== 7) {
-    throw new Error(`Expected 7 provinces, got ${PROVINCES.length}`);
+  if (PROVINCES.length !== 8) {
+    throw new Error(`Expected 8 provinces, got ${PROVINCES.length}`);
   }
   for (const nameTh of PROVINCES) {
     await prisma.province.upsert({
