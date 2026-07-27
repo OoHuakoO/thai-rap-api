@@ -23,10 +23,7 @@ import {
 
 const prisma = new PrismaClient({ adapter: new PrismaMariaDb(process.env.DATABASE_URL as string) });
 
-const DEFAULT_WORKBOOK = path.join(
-  process.env.HOME ?? '',
-  'Downloads/THAI-RAP_Excel_Template_50_Restaurants.xlsx',
-);
+const DEFAULT_WORKBOOK = path.join(__dirname, 'THAI-RAP_Excel_Template_50_Restaurants.xlsx');
 
 const STORE_SHEET = '01_ข้อมูลร้าน';
 const ASSESSMENT_SHEET = '02_ประเมิน50ร้าน';

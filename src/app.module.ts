@@ -21,6 +21,7 @@ import { AssessmentModule } from './modules/assessment/assessment.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { NewsModule } from './modules/news/news.module';
 import { ReportModule } from './modules/report/report.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -91,6 +92,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     DashboardModule,
     NewsModule,
     ReportModule,
+    AnalyticsModule,
   ],
 
   providers: [
