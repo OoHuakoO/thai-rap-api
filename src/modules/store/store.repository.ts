@@ -15,6 +15,7 @@ export type PhotoField = 'menuPhotos' | 'storePhotos';
 
 const STORE_SELECT = {
   id: true,
+  code: true,
   name: true,
   province: true,
   storeType: true,
@@ -44,6 +45,7 @@ export class StoreRepository {
     const where: Prisma.StoreWhereInput = {};
     if (query.search) {
       where.OR = [
+        { code: { contains: query.search } },
         { name: { contains: query.search } },
         { ownerName: { contains: query.search } },
         { phone: { contains: query.search } },
@@ -79,6 +81,10 @@ export class StoreRepository {
 
   findUserRole(id: string): Promise<{ id: string; role: Role } | null> {
     return this.prisma.user.findUnique({ where: { id }, select: { id: true, role: true } });
+  }
+
+  findIdByCode(code: string): Promise<{ id: string } | null> {
+    return this.prisma.store.findUnique({ where: { code }, select: { id: true } });
   }
 
   create(data: Prisma.StoreUncheckedCreateInput): Promise<Store> {
@@ -189,10 +195,11 @@ export class StoreRepository {
 
   async findDistinctStoreTypes(): Promise<string[]> {
     const rows = await this.prisma.store.findMany({
+      where: { storeType: { not: null } },
       distinct: ['storeType'],
       select: { storeType: true },
       orderBy: { storeType: 'asc' },
     });
-    return rows.map((r) => r.storeType);
+    return rows.map((r) => r.storeType as string);
   }
 }

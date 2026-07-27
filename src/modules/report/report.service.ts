@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Round } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { ForbiddenException, NotFoundException } from '@common/exceptions/app.exception';
-import { ERROR_CODES, canReadAssessment } from '@constants/index';
+import { ERROR_CODES, canReadAssessment, STORE_UNSPECIFIED_LABEL } from '@constants/index';
 import { DimensionService } from '@modules/assessment/dimension.service';
 import {
   computeDimensionScores,
@@ -153,9 +153,9 @@ export class ReportService {
     return {
       id: store.id,
       name: store.name,
-      province: store.province,
-      storeType: store.storeType,
-      ownerName: store.ownerName,
+      province: store.province ?? STORE_UNSPECIFIED_LABEL,
+      storeType: store.storeType ?? STORE_UNSPECIFIED_LABEL,
+      ownerName: store.ownerName ?? STORE_UNSPECIFIED_LABEL,
     };
   }
 

@@ -150,7 +150,7 @@ export class AssessmentRepository {
   // the database. The caller only needs those sums to average the dimensions,
   // so this returns one row per question instead of one row per score —
   // stores × 50 rows over the wire become 50, whatever the cohort size.
-  async sumRawScoreByQuestion(round: Round, province: string): Promise<QuestionScoreSum[]> {
+  async sumRawScoreByQuestion(round: Round, province: string | null): Promise<QuestionScoreSum[]> {
     const grouped = await this.prisma.score.groupBy({
       by: ['questionId'],
       where: {

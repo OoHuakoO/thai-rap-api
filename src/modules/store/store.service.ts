@@ -5,6 +5,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
 } from '@common/exceptions/app.exception';
 import {
   ERROR_CODES,
@@ -17,6 +18,7 @@ import { normalizePagination, buildPaginatedResult } from '@shared/pagination.ut
 import { saveLocalFile, deleteLocalFile, deleteLocalDir } from '@shared/file-storage.util';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { ProvinceService } from '@modules/province/province.service';
+import { StoreTypeService } from '@modules/store-type/store-type.service';
 import { StoreRepository, type PhotoField } from './store.repository';
 import type { CreateStoreDto } from './dto/create-store.dto';
 import type { UpdateStoreDto, UpdateStoreStatusDto } from './dto/update-store.dto';
@@ -33,6 +35,7 @@ export class StoreService {
   constructor(
     private readonly storeRepo: StoreRepository,
     private readonly provinceService: ProvinceService,
+    private readonly storeTypeService: StoreTypeService,
   ) {}
 
   async findAll(
@@ -120,7 +123,9 @@ export class StoreService {
         'เฉพาะ admin หรือ entrepreneur เท่านั้นที่สร้างร้านค้าได้',
       );
     }
+    await this.assertUniqueCode(dto.code);
     await this.assertValidProvince(dto.province);
+    await this.assertValidStoreType(dto.storeType);
     this.assertRevenueRange(dto.avgRevenueMin ?? null, dto.avgRevenueMax ?? null);
     const { ownerId: requestedOwnerId, ...rest } = dto;
     let ownerId: string | null;
@@ -141,7 +146,9 @@ export class StoreService {
   async update(id: string, dto: UpdateStoreDto, user: JwtPayload): Promise<StoreResult> {
     const store = await this.getStoreOrThrow(id);
     this.assertCanManage(user, store);
+    if (dto.code && dto.code !== store.code) await this.assertUniqueCode(dto.code);
     if (dto.province) await this.assertValidProvince(dto.province);
+    if (dto.storeType) await this.assertValidStoreType(dto.storeType);
     this.assertRevenueRange(
       dto.avgRevenueMin ?? store.avgRevenueMin,
       dto.avgRevenueMax ?? store.avgRevenueMax,
@@ -319,6 +326,28 @@ export class StoreService {
     }
   }
 
+  private async assertValidStoreType(storeType: string): Promise<void> {
+    const isValid = await this.storeTypeService.isValid(storeType);
+    if (!isValid) {
+      throw new BadRequestException(
+        ERROR_CODES.STORE.INVALID_STORE_TYPE,
+        `"${storeType}" ไม่ใช่ประเภทร้านที่ถูกต้อง`,
+      );
+    }
+  }
+
+  // The unique index is the real guard; this check exists so a duplicate comes
+  // back as STORE_008 instead of the generic DB_001 the Prisma filter emits.
+  private async assertUniqueCode(code: string): Promise<void> {
+    const existing = await this.storeRepo.findIdByCode(code);
+    if (existing) {
+      throw new ConflictException(
+        ERROR_CODES.STORE.DUPLICATE_CODE,
+        `รหัสร้าน "${code}" ถูกใช้ไปแล้ว`,
+      );
+    }
+  }
+
   private async getStoreOrThrow(id: string): Promise<Store & { documents: StoreDocument[] }> {
     const store = await this.storeRepo.findById(id);
     if (!store) throw new NotFoundException(ERROR_CODES.STORE.NOT_FOUND, 'ไม่พบร้านค้า');
@@ -362,6 +391,7 @@ export class StoreService {
       // rest and render the edit/delete actions accordingly. An opaque id, so it
       // discloses nothing about the business behind it.
       ownerId: store.ownerId,
+      code: store.code,
       name: store.name,
       province: store.province,
       storeType: store.storeType,
@@ -392,6 +422,7 @@ export class StoreService {
   ): StoreResult {
     return {
       id: store.id,
+      code: store.code,
       name: store.name,
       province: store.province,
       storeType: store.storeType,

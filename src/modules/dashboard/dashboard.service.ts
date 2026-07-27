@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { NewsType, Role, Round, StoreStatus } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
-import { STORE_TARGET_TOTAL } from '@constants/index';
+import { STORE_TARGET_TOTAL, STORE_UNSPECIFIED_LABEL } from '@constants/index';
 import { NewsService } from '@modules/news/news.service';
 import { buildStoreScoresWorkbook } from './dashboard-export.util';
 import {
@@ -177,7 +177,7 @@ export class DashboardService {
     const total = rows.reduce((sum, row) => sum + row.count, 0);
 
     return rows.map((row) => ({
-      province: row.province,
+      province: row.province ?? STORE_UNSPECIFIED_LABEL,
       count: row.count,
       percentage: toPercentage(row.count, total),
     }));
@@ -237,7 +237,9 @@ export class DashboardService {
 
     for (const row of rows) {
       if (row.totalScore === null) continue;
-      const entry = byStore.get(row.storeId) ?? { province: row.store.province };
+      const entry: { province: string; from?: number; to?: number } = byStore.get(row.storeId) ?? {
+        province: row.store.province ?? STORE_UNSPECIFIED_LABEL,
+      };
       if (row.round === fromRound) entry.from = row.totalScore;
       if (row.round === toRound) entry.to = row.totalScore;
       byStore.set(row.storeId, entry);
@@ -293,8 +295,8 @@ export class DashboardService {
       return {
         storeId: row.id,
         storeName: row.name,
-        province: row.province,
-        storeType: row.storeType,
+        province: row.province ?? STORE_UNSPECIFIED_LABEL,
+        storeType: row.storeType ?? STORE_UNSPECIFIED_LABEL,
         scores,
       };
     });
@@ -368,8 +370,8 @@ export class DashboardService {
         rank: index + 1,
         storeId: row.storeId,
         storeName: row.store.name,
-        province: row.store.province,
-        storeType: row.store.storeType,
+        province: row.store.province ?? STORE_UNSPECIFIED_LABEL,
+        storeType: row.store.storeType ?? STORE_UNSPECIFIED_LABEL,
         t1Score: round2(row.totalScore),
       }));
   }

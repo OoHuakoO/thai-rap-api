@@ -9,6 +9,7 @@ import { ERROR_CODES } from '@constants/index';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { saveLocalFile, deleteLocalFile, deleteLocalDir } from '@shared/file-storage.util';
 import { ProvinceService } from '@modules/province/province.service';
+import { StoreTypeService } from '@modules/store-type/store-type.service';
 import { StoreService } from './store.service';
 import { StoreRepository } from './store.repository';
 
@@ -35,6 +36,7 @@ const viewer: JwtPayload = { sub: 'viewer-1', email: 'v@example.com', role: Role
 
 const mockStore: Store & { documents: StoreDocument[] } = {
   id: 'store-1',
+  code: 'RAP69-001',
   name: 'ร้านทดสอบ',
   province: 'ชลบุรี',
   storeType: 'อาหารตามสั่ง',
@@ -78,6 +80,7 @@ describe('StoreService', () => {
   let service: StoreService;
   let repository: jest.Mocked<StoreRepository>;
   let provinceService: jest.Mocked<ProvinceService>;
+  let storeTypeService: jest.Mocked<StoreTypeService>;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -103,10 +106,15 @@ describe('StoreService', () => {
             appendPhoto: jest.fn(),
             removePhoto: jest.fn(),
             findDistinctStoreTypes: jest.fn(),
+            findIdByCode: jest.fn().mockResolvedValue(null),
           },
         },
         {
           provide: ProvinceService,
+          useValue: { isValid: jest.fn().mockResolvedValue(true) },
+        },
+        {
+          provide: StoreTypeService,
           useValue: { isValid: jest.fn().mockResolvedValue(true) },
         },
       ],
@@ -115,6 +123,7 @@ describe('StoreService', () => {
     service = module.get<StoreService>(StoreService);
     repository = module.get(StoreRepository);
     provinceService = module.get(ProvinceService);
+    storeTypeService = module.get(StoreTypeService);
   });
 
   describe('findAll', () => {
@@ -261,6 +270,7 @@ describe('StoreService', () => {
 
       expect(Object.keys(result).sort()).toEqual(
         [
+          'code',
           'coverUrl',
           'goals',
           'id',
@@ -309,6 +319,7 @@ describe('StoreService', () => {
 
   describe('create', () => {
     const dto = {
+      code: 'RAP69-002',
       name: 'ร้านใหม่',
       province: 'ชลบุรี',
       storeType: 'อาหารตามสั่ง',
@@ -362,6 +373,22 @@ describe('StoreService', () => {
 
       await expect(service.create(dto, admin)).rejects.toMatchObject({
         code: ERROR_CODES.STORE.INVALID_PROVINCE,
+      });
+    });
+
+    it('should throw BadRequestException for an invalid store type', async () => {
+      storeTypeService.isValid.mockResolvedValue(false);
+
+      await expect(service.create(dto, admin)).rejects.toMatchObject({
+        code: ERROR_CODES.STORE.INVALID_STORE_TYPE,
+      });
+    });
+
+    it('should throw ConflictException when the store code is already taken', async () => {
+      repository.findIdByCode.mockResolvedValue({ id: 'store-9' });
+
+      await expect(service.create(dto, admin)).rejects.toMatchObject({
+        code: ERROR_CODES.STORE.DUPLICATE_CODE,
       });
     });
 

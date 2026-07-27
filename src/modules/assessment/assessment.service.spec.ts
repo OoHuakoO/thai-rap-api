@@ -153,6 +153,7 @@ const mockFile = {
 
 const mockStoreResult: StoreResult = {
   id: 'store-1',
+  code: 'RAP69-001',
   name: 'ร้านทดสอบ',
   province: 'ชลบุรี',
   storeType: 'อาหารตามสั่ง',

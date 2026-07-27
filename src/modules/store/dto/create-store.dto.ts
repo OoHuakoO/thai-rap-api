@@ -1,8 +1,23 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsEmail, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsArray,
+  IsEmail,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { IsStringRecord } from '@common/validators/is-string-record.validator';
 
 export class CreateStoreDto {
+  @ApiProperty({ example: 'RAP69-001', description: 'รหัสร้านที่ใช้ร่วมกับเอกสารและไฟล์ Excel' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(50)
+  code: string;
+
   @ApiProperty({ example: 'ร้านส้มตำป้าแดง' })
   @IsString()
   @MaxLength(200)

@@ -138,13 +138,19 @@ model RefreshToken {
 
 model Store {
   id               String      @id @default(cuid())
+  // Project-wide identifier printed on every offline form and Excel export
+  // (RAP69-001…). It is how a spreadsheet row is matched back to a row here —
+  // the cuid id exists nowhere outside this database.
+  code             String      @unique
   name             String
-  province         String
-  storeType        String
-  ownerName        String
-  phone            String
+  // Nullable because the onboarding spreadsheet arrives with these blank for
+  // most stores; the create form still requires them for a store keyed in by hand.
+  province         String?
+  storeType        String?
+  ownerName        String?
+  phone            String?
   email            String?
-  address          String      @db.Text
+  address          String?     @db.Text
   socialLinks      Json        @default("{}")
   avgRevenueMin    Float?
   avgRevenueMax    Float?
@@ -184,6 +190,11 @@ model StoreDocument {
 // ─── Lookup ───────────────────────────────────────────────────────────────────
 
 model Province {
+  id     Int    @id @default(autoincrement())
+  nameTh String @unique
+}
+
+model StoreType {
   id     Int    @id @default(autoincrement())
   nameTh String @unique
 }

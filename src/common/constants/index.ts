@@ -6,7 +6,7 @@ export {
   isAdminRole,
   SELF_REGISTERABLE_ROLES,
 } from './role.const';
-export { STORE_TARGET_TOTAL } from './store.const';
+export { STORE_TARGET_TOTAL, STORE_UNSPECIFIED_LABEL } from './store.const';
 export {
   FILE_MAX_SIZE_BYTES,
   FILE_MAX_SIZE_MB,

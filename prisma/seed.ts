@@ -158,8 +158,23 @@ async function seedProvinces(): Promise<void> {
   console.log(`Seeded ${PROVINCES.length} provinces.`);
 }
 
+// The ประเภทร้าน list from the THAI-RAP intake workbook (sheet 06_Lists).
+const STORE_TYPES: string[] = ['อาหารไทย', 'อาหารทะเล', 'คาเฟ่', 'เดลิเวอรี', 'Catering', 'อื่น ๆ'];
+
+async function seedStoreTypes(): Promise<void> {
+  for (const nameTh of STORE_TYPES) {
+    await prisma.storeType.upsert({
+      where: { nameTh },
+      update: {},
+      create: { nameTh },
+    });
+  }
+  console.log(`Seeded ${STORE_TYPES.length} store types.`);
+}
+
 async function main(): Promise<void> {
   await seedProvinces();
+  await seedStoreTypes();
 
   const totalWeight = DIMENSIONS.reduce((sum, d) => sum + d.weight, 0);
   const totalQuestions = DIMENSIONS.reduce((sum, d) => sum + d.questions.length, 0);

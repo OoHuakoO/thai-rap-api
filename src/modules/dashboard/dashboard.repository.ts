@@ -23,25 +23,25 @@ export interface ProvinceScoreRow {
   storeId: string;
   round: Round;
   totalScore: number | null;
-  store: { province: string };
+  store: { province: string | null };
 }
 
 export interface StoreScoreRow {
   storeId: string;
   totalScore: number | null;
-  store: { name: string; province: string; storeType: string };
+  store: { name: string; province: string | null; storeType: string | null };
 }
 
 export interface StoreRoundScoreRow {
   id: string;
   name: string;
-  province: string;
-  storeType: string;
+  province: string | null;
+  storeType: string | null;
   assessments: { round: Round; totalScore: number | null }[];
 }
 
 export interface ProvinceCountRow {
-  province: string;
+  province: string | null;
   count: number;
 }
 

@@ -11,13 +11,14 @@ export interface StoreDocumentResult {
 
 export interface StoreResult {
   id: string;
+  code: string;
   name: string;
-  province: string;
-  storeType: string;
-  ownerName: string;
-  phone: string;
+  province: string | null;
+  storeType: string | null;
+  ownerName: string | null;
+  phone: string | null;
   email: string | null;
-  address: string;
+  address: string | null;
   socialLinks: Record<string, string>;
   avgRevenueMin: number | null;
   avgRevenueMax: number | null;
@@ -48,6 +49,7 @@ export type PublicStoreResult = Pick<
   StoreResult,
   | 'id'
   | 'ownerId'
+  | 'code'
   | 'name'
   | 'province'
   | 'storeType'
