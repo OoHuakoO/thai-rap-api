@@ -7,21 +7,22 @@ import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 const prisma = new PrismaClient({ adapter: new PrismaMariaDb(process.env.DATABASE_URL as string) });
 
 // Dumps the same transactional tables reset-test-data.ts wipes (Store,
-// StoreDocument, Assessment, Score, RedFlag, Evidence) to a timestamped JSON
-// file, so a reset can be undone by hand if needed. Run manually before
+// StoreDocument, Assessment, Score, RedFlag, Evidence, News) to a timestamped
+// JSON file, so a reset can be undone by hand if needed. Run manually before
 // `reset-test-data.ts`, never in CI/prod.
 
 async function main(): Promise<void> {
-  const [store, storeDocument, assessment, score, redFlag, evidence] = await Promise.all([
+  const [store, storeDocument, assessment, score, redFlag, evidence, news] = await Promise.all([
     prisma.store.findMany({}),
     prisma.storeDocument.findMany({}),
     prisma.assessment.findMany({}),
     prisma.score.findMany({}),
     prisma.redFlag.findMany({}),
     prisma.evidence.findMany({}),
+    prisma.news.findMany({}),
   ]);
 
-  const backup = { store, storeDocument, assessment, score, redFlag, evidence };
+  const backup = { store, storeDocument, assessment, score, redFlag, evidence, news };
 
   const dir = join(__dirname, 'backups');
   mkdirSync(dir, { recursive: true });
@@ -36,6 +37,7 @@ async function main(): Promise<void> {
     score: score.length,
     redFlag: redFlag.length,
     evidence: evidence.length,
+    news: news.length,
   });
   console.log('Written to:', filePath);
 }

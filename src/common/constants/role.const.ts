@@ -11,8 +11,17 @@ export function isAdminRole(role: string): boolean {
   return ADMIN_ROLES.some((adminRole) => adminRole === role);
 }
 
-// An allow-list, not a deny-list: POST /auth/register creates an ACTIVE account
-// with no approval step, so every staff role (ASSESSOR/MENTOR/JUDGE/ME_TEAM) must
-// be provisioned by an admin. Denying only ADMIN_ROLES let a caller self-register
-// as ASSESSOR and immediately score assessments.
-export const SELF_REGISTERABLE_ROLES: Role[] = [Role.VIEWER, Role.ENTREPRENEUR];
+// An allow-list, not a deny-list — a role added to the enum later must be opted
+// in here deliberately, never inherit self-registration by default.
+// POST /auth/register creates an ACTIVE account with no approval step, so a
+// self-registered ASSESSOR can score assessments immediately. That is accepted
+// for now; ADMIN_ROLES stay out because they can manage users and rewrite every
+// other role's permissions.
+export const SELF_REGISTERABLE_ROLES: Role[] = [
+  Role.VIEWER,
+  Role.ENTREPRENEUR,
+  Role.MENTOR,
+  Role.ASSESSOR,
+  Role.JUDGE,
+  Role.ME_TEAM,
+];

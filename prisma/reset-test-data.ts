@@ -4,7 +4,8 @@ import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 
 const prisma = new PrismaClient({ adapter: new PrismaMariaDb(process.env.DATABASE_URL as string) });
 
-// Wipes all transactional data while keeping seed data (Province, Dimension,
+// Wipes all transactional data (Store, StoreDocument, Assessment, Score,
+// RedFlag, Evidence, News) while keeping seed data (Province, Dimension,
 // Question — see seed.ts) and all User / RefreshToken records. Run manually, never in CI/prod.
 
 async function main(): Promise<void> {
@@ -16,6 +17,7 @@ async function main(): Promise<void> {
     const assessment = await tx.assessment.deleteMany({});
     const storeDocument = await tx.storeDocument.deleteMany({});
     const store = await tx.store.deleteMany({});
+    const news = await tx.news.deleteMany({});
 
     return {
       evidence: evidence.count,
@@ -24,6 +26,7 @@ async function main(): Promise<void> {
       assessment: assessment.count,
       storeDocument: storeDocument.count,
       store: store.count,
+      news: news.count,
     };
   });
 
