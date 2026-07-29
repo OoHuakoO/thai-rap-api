@@ -472,10 +472,11 @@ export class AssessmentService {
     await this.assertPriorRoundCompleted(assessment.storeId, assessment.round);
   }
 
-  // "ร้านที่ได้รับมอบหมาย" — the ASSIGNED data scope, enforced on writes only.
-  // A store read stays open to every staff role (see project-conventions.md);
-  // what an assessor may *score* is the SUPER_ADMIN's assignment list, set
-  // through PATCH /users/:id/assigned-stores.
+  // "ร้านที่ได้รับมอบหมาย" — what an assessor may *score*, on top of the read
+  // narrowing StoreService.assertVisible already applies to every
+  // assignment-scoped role. Both resolve against the same SUPER_ADMIN-managed
+  // list (PATCH /users/:id/assigned-stores); this one is the write half, so it
+  // names ASSESSOR alone — a MENTOR reads the result and does not score.
   //
   // Admin roles are exempt: they run the programme and stand in for an assessor
   // when nobody is assigned yet. An ASSESSOR with an empty list can score

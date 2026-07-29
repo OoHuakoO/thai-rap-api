@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Question } from '@prisma/client';
-import { Role, Round } from '@prisma/client';
+import { Round } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { ForbiddenException, NotFoundException } from '@common/exceptions/app.exception';
 import {
@@ -9,6 +9,7 @@ import {
   isAdminRole,
   STORE_UNSPECIFIED_LABEL,
 } from '@constants/index';
+import { resolveStoreScope } from '@shared/store-scope.util';
 import { DimensionService } from '@modules/assessment/dimension.service';
 import {
   computeDimensionScores,
@@ -286,8 +287,14 @@ export class ReportService {
     // list keeps the dashboard card rendering instead of 403-ing the whole page.
     if (!canReadAssessment(user.role)) return [];
 
-    const ownerId = user.role === Role.ENTREPRENEUR ? user.sub : undefined;
-    const rows = await this.reportRepo.findRecentSubmitted(RECENT_REPORT_LIMIT, ownerId);
+    // Same narrowing every other read of this data gets: an ENTREPRENEUR lists
+    // its own store's reports, an ASSESSOR or a MENTOR its assignment list's.
+    // Anything wider would put a store's scores in front of people who 403 on
+    // the export link the row carries.
+    const rows = await this.reportRepo.findRecentSubmitted(
+      RECENT_REPORT_LIMIT,
+      resolveStoreScope(user),
+    );
 
     const reports: AvailableReport[] = [];
     const storesWithOverview = new Set<string>();

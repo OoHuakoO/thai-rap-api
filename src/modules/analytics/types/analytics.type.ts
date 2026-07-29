@@ -66,5 +66,4 @@ export interface StoreAnalyticsResult {
   aiAnalysis: null;
   mentorRecommendations: [];
   incubationStatus: null;
-  lastUpdated: string;
 }

@@ -123,20 +123,27 @@ Store access rules:
   and `GET /stores/:id` on another owner's store 403s rather than returning a
   stripped record. Ownership comes from `PATCH /users/:id/owned-stores` when an
   admin registered the store on their behalf.
-- **ASSESSOR** sees only its assignment list in `GET /stores`
-  (`StoreService.findAll` passes `{ assignedToId: user.sub }`) — the scoring
-  page's store picker reads that list, so a store it may not score never
-  appears there. Assignment is a SUPER_ADMIN act
-  (`PATCH /users/:id/assigned-stores`); an assessor with none gets an empty
-  directory, which is the intended state. Scoring is separately gated by
-  `AssessmentService.assertAssignedToStore`; admin roles bypass both.
+- **ASSESSOR and MENTOR** (`ASSIGNMENT_SCOPED_ROLES` in `role.const.ts`) see
+  only their assignment list in `GET /stores` (`resolveStoreScope()` in
+  `shared/store-scope.util.ts` returns `{ assignedToId: user.sub }`) — and, since
+  2026-07-29, in `/dashboard/*` too, so the overview cards count the same stores
+  the directory lists. The scoring page's store picker reads that
+  list, so a store an assessor may not score never appears there, and a mentor
+  reaches the ผลการประเมิน of the stores it was handed and no others.
+  Assignment is a SUPER_ADMIN act (`PATCH /users/:id/assigned-stores`) for both
+  roles; either one with none gets an empty directory, which is the intended
+  state. Scoring is separately gated by
+  `AssessmentService.assertAssignedToStore` (ASSESSOR only — a mentor does not
+  score); admin roles bypass both.
 - A narrowed role is narrowed on **single-store reads too** —
-  `StoreService.assertVisible` is the mirror of `listScope` and runs in both
+  `StoreService.assertVisible` is the mirror of `resolveStoreScope()` and runs in both
   `findOne` and `findAccessible`, so an id left out of the list cannot be
-  reached by guessing it. For ASSESSOR that means assessment, report and
-  analytics reads of an unassigned store all 403, not just the scoring page.
-  Add a role to one of the two and you must add it to the other.
-- **MENTOR / JUDGE / ME_TEAM / VIEWER** read every store; `Store.assignedUsers`
+  reached by guessing it. For an assignment-scoped role that means assessment,
+  report and analytics reads of an unassigned store all 403, not just the
+  scoring page. Add a role to one of the two and you must add it to the other —
+  and to `ASSIGNMENT_SCOPED_ROLES`, which is also what `UserService.assignStores`
+  checks before it will write a list at all.
+- **JUDGE / ME_TEAM / VIEWER** read every store; `Store.assignedUsers`
   is not a filter for them (nothing assigns stores to those roles).
 - Store aggregate stats (`GET /stores/stats`) are limited to **ADMIN and
   ENTREPRENEUR only** — matches the roles that can open the web `/stores` page

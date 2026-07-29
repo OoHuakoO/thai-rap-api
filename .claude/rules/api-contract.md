@@ -118,7 +118,12 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   ADMIN included), matching `SUPER_ADMIN_ONLY_PERMISSIONS` and the
   `allowedRoles` on `ROUTES.USERS` in the web. `PATCH /users/:id/assigned-stores`
   and `/owned-stores` take the **complete** id list — an omitted store is
-  revoked, `[]` clears everything.
+  revoked, `[]` clears everything. `assigned-stores` accepts an **ASSESSOR or a
+  MENTOR** (`ASSIGNMENT_SCOPED_ROLES`) and 400s `USER_006` for any other role;
+  the web offers the same dialog on both rows (`ASSIGN_MODE_BY_ROLE` in
+  `features/user/components/user-row-actions.tsx`, mode `assessor` / `mentor`
+  — one endpoint, different copy), and `mocks/handlers/user.handlers.ts`
+  mirrors the widened check.
 - Assessment **writes** are gated on `Store.assignedUsers` for ASSESSOR
   (403 `PERM_001`); admin roles bypass. An ASSESSOR with no assignments can
   score nothing, so the web must surface that 403 rather than auto-creating a
@@ -133,17 +138,22 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 - `GET /stores/stats` is staff-only (403 `PERM_001` for ENTREPRENEUR). Web
   `useStoreStats` (`features/store/hooks/use-stores.ts`) calls it for every
   role; entrepreneur degrades to a hidden stats bar and empty filter dropdowns.
-- `GET /stores` is narrowed to `Store.assignedUsers` for **ASSESSOR** — it lists
+- `GET /stores` is narrowed to `Store.assignedUsers` for **ASSESSOR and MENTOR**
+  (`ASSIGNMENT_SCOPED_ROLES`) — it lists
   only the stores a SUPER_ADMIN assigned to that account, so the web's
   `useStores` callers (assessment store picker, `/assessment` entry redirect,
-  reports and analytics pickers) show that list and nothing else. An assessor
+  reports and analytics pickers) show that list and nothing else. An account
   with no assignments gets `items: []` and the web falls through to
   `EMPTY_STORE_MESSAGE` — not an error. `GET /stores/:id` 403s `PERM_001` on an
   unassigned store too, and because every assessment, report and analytics read
-  runs through `StoreService.findAccessible()`, an assessor gets that same 403
+  runs through `StoreService.findAccessible()`, it gets that same 403
   from `/assessments*`, `/reports/*` (exports included) and `/analytics/*` for a
-  store it was not assigned — it works only inside its own list. Every other
-  role is unaffected. The MSW **store** handlers mirror this narrowing (see
+  store it was not assigned — it works only inside its own list. **MENTOR moved
+  into this group on 2026-07-29**: it used to read all 50 stores, and a mentor
+  left without assignments now sees an empty directory until a SUPER_ADMIN
+  fills one in. The web already declared it (`ROLE_DATA_SCOPES.MENTOR` is
+  `ASSIGNED` in `constants/permissions.ts`); this is the API catching up. Every
+  other role is unaffected. The MSW **store** handlers mirror this narrowing (see
   below); the assessment/report/analytics handlers do not.
 - `GET /stores` is **ownership-scoped for ENTREPRENEUR** — it lists only the
   stores whose `ownerId` is the caller, and `GET /stores/:id` 403s `PERM_001`
@@ -164,9 +174,9 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   Ownership comes off `userDb.ownedStoreIds` (what the `/users` dialog writes),
   not off the store fixture, except for a store created through the mock
   `POST /stores`, which stamps its own `ownerId`. Locked down by
-  `mocks/handlers/store.handlers.test.ts`. The dashboard, assessment, report
-  and analytics handlers are still **not** scoped — in mock mode every role
-  sees the full fixture set there.
+  `mocks/handlers/store.handlers.test.ts`. The **dashboard** handlers narrow the
+  same way (see below); the assessment, report and analytics handlers are still
+  **not** scoped — in mock mode every role sees the full fixture set there.
 - **`GET /stores` and `GET /stores/:id` return a narrowed object** —
   `PublicStoreResult` (id, ownerId, name, province, storeType, socialLinks,
   goals, menuPhotos, coverUrl, storePhotos, status) instead of `StoreResult` —
@@ -184,8 +194,14 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   (403 `PERM_001` otherwise). The web mirrors this: `ROUTES.NEWS` carries no
   `allowedRoles` and every role holds `news:read`, while `/news/new` and
   `/news/:id/edit` have their own `ROUTE_PERMISSIONS` entries requiring
-  `news:write`. The dashboard activity feed calls `NewsService.listForFeed()`
-  in-process, as before.
+  `news:write`. `GET /dashboard/activities` is **nothing but that feed** since
+  2026-07-29 — it maps `NewsService.listForFeed(10)` in-process and derives no
+  rows of its own. The T1-follow-up and red-flag warnings it used to synthesise
+  are gone (`countStoresAwaitingT1` / `countUnresolvedRedFlags` deleted with
+  them), so an admin who wants one publishes an `ALERT` news item. It takes no
+  user and is not ownership-scoped, matching `GET /news`. The MSW handler
+  mirrors this: `mocks/handlers/dashboard.handlers.ts` returns `newsDb` only,
+  and the `activities` fixture is gone.
 - Assessment writes are ADMIN / ASSESSOR only (`AssessmentService.WRITE_ROLES`),
   matching `ASSESSMENT_WRITE` in the web's `ROLE_PERMISSIONS`. "แบบ 50 ข้อ" §3.3
   gives ผู้ติดตาม/Assessor "ประเมินร้าน 50 ข้อ / ให้คะแนน T0–T4"; §3.4 lists
@@ -209,13 +225,27 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   ungated read there published every store's scores to anyone on the internet.
 - `GET /assessments` and `GET /assessments/:id` are scoped by store ownership;
   an ENTREPRENEUR only ever sees their own store's rounds.
-- Every `/dashboard/*` endpoint is scoped by store ownership too: an
-  ENTREPRENEUR gets the same seven cards computed over the stores it owns
-  (`DashboardService.ownerScope`), not a 403. The web grants it `dashboard:read`
-  and lists ภาพรวมโครงการ in its nav, which also makes `/` its post-login landing
-  route instead of `/stores`. `targetStores` stays the project-wide
-  `STORE_TARGET_TOTAL` for every role. The MSW dashboard handlers are not
-  ownership-aware — in mock mode every role sees the full fixture set.
+- Every `/dashboard/*` endpoint is narrowed the same way `GET /stores` is,
+  through the shared `resolveStoreScope()` (`shared/store-scope.util.ts`): an
+  ENTREPRENEUR gets the seven cards computed over the stores it owns, an
+  ASSESSOR and a MENTOR over their assignment list, and every staff role keeps
+  the project-wide numbers — nobody gets a 403. **MENTOR and ASSESSOR moved
+  into this group on 2026-07-29**: the overview used to report all 400 stores to
+  them, so an assessor's Top 20, KPI counts and คะแนนรายร้าน export carried
+  stores it cannot open on `/stores`. `GET /dashboard/activities` stays
+  unscoped (it is the news feed, which has no store to narrow on), and
+  `targetStores` stays the project-wide `STORE_TARGET_TOTAL` for every role —
+  the goal is the programme's, not a count of what the caller reaches. The web
+  grants every role `dashboard:read` and lists ภาพรวมโครงการ in its nav, which
+  also makes `/` the post-login landing route instead of `/stores`.
+  `GET /dashboard/reports-status` follows the same scope via
+  `ReportService.listAvailableReports`. **The MSW dashboard handlers mirror all
+  of this** — they read the caller from the mock bearer token and narrow off
+  `userDb`'s owned/assigned lists, the same source `store.handlers.ts` uses, and
+  the first rows of the synthetic 100-store set take their ids from the store
+  directory so those lists resolve. Locked down by
+  `mocks/handlers/dashboard.handlers.test.ts`. The assessment and analytics
+  handlers are still **not** scoped.
 - A round counts as finished at `SUBMITTED` **or** `APPROVED`
   (`COMPLETED_STATUSES` in `AssessmentService`, `utils/status.ts` on the web).
   It gates editing, ranking, the round pills and the timeline on both sides.

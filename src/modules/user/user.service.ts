@@ -6,7 +6,7 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@common/exceptions/app.exception';
-import { ERROR_CODES } from '@constants/index';
+import { ASSIGNMENT_SCOPED_ROLES, ERROR_CODES } from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
 import type { PaginatedResult } from '@common/types/api-response.type';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
@@ -42,12 +42,6 @@ export interface UserStats {
   active: number;
   suspended: number;
 }
-
-// Which stores an assessor may score is only meaningful for the role that
-// scores. Assigning stores to a MENTOR or a JUDGE would write rows nothing
-// reads — the ASSIGNED scope is enforced in AssessmentService for ASSESSOR
-// alone (see assertAssignedToStore there).
-const ASSESSOR_ASSIGNABLE_ROLES: Role[] = [Role.ASSESSOR];
 
 // Store ownership is what ENTREPRENEUR's OWN data scope resolves against —
 // StoreService.findAccessible and the dashboard/assessment owner scoping all
@@ -119,13 +113,14 @@ export class UserService {
     const target = await this.getUserOrThrow(id);
     this.assertNotSuperAdmin(target, 'เปลี่ยนบทบาทของ super admin ไม่ได้');
 
-    // Store links are role-scoped (see the two role lists above); a role change
-    // that leaves them behind creates exactly the inconsistent rows those lists
-    // exist to prevent — an ex-assessor holding assignments nothing reads.
-    if (target.assignedStores.length > 0 && !ASSESSOR_ASSIGNABLE_ROLES.includes(dto.role)) {
+    // Store links are role-scoped (ASSIGNMENT_SCOPED_ROLES, STORE_OWNER_ROLES);
+    // a role change that leaves them behind creates exactly the inconsistent
+    // rows those lists exist to prevent — an ex-assessor holding assignments
+    // nothing reads.
+    if (target.assignedStores.length > 0 && !ASSIGNMENT_SCOPED_ROLES.includes(dto.role)) {
       throw new BadRequestException(
         ERROR_CODES.USER.INVALID_STATE,
-        'ต้องยกเลิกร้านที่มอบหมายให้ผู้ประเมินคนนี้ก่อนเปลี่ยนบทบาท',
+        'ต้องยกเลิกร้านที่มอบหมายให้ผู้ใช้คนนี้ก่อนเปลี่ยนบทบาท',
       );
     }
     if (target.ownedStores.length > 0 && !STORE_OWNER_ROLES.includes(dto.role)) {
@@ -138,14 +133,15 @@ export class UserService {
     return toResult(await this.userRepo.updateRole(id, dto.role));
   }
 
-  // "กำหนดสิทธิ์การประเมินร้านให้กับผู้ประเมิน" — the assessor's assignment list.
+  // "กำหนดสิทธิ์การประเมินร้านให้กับผู้ประเมิน" — the assignment list an ASSESSOR
+  // scores against and a MENTOR reads against.
   async assignStores(id: string, dto: AssignStoresDto, user: JwtPayload): Promise<UserResult> {
     this.assertCanManage(user);
     const target = await this.getUserOrThrow(id);
-    if (!ASSESSOR_ASSIGNABLE_ROLES.includes(target.role)) {
+    if (!ASSIGNMENT_SCOPED_ROLES.includes(target.role)) {
       throw new BadRequestException(
         ERROR_CODES.USER.INVALID_ROLE,
-        'มอบหมายร้านให้ประเมินได้เฉพาะผู้ประเมินเท่านั้น',
+        'มอบหมายร้านได้เฉพาะผู้ประเมินและที่ปรึกษาเท่านั้น',
       );
     }
     await this.assertStoresExist(dto.storeIds);

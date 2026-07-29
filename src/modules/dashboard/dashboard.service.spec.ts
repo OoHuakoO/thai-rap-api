@@ -10,6 +10,16 @@ import { TOP20_ALL_ROUNDS } from './dto/query-top20.dto';
 
 const admin: JwtPayload = { sub: 'admin-1', email: 'admin@example.com', role: Role.ADMIN };
 const owner: JwtPayload = { sub: 'owner-1', email: 'owner@example.com', role: Role.ENTREPRENEUR };
+const assessor: JwtPayload = {
+  sub: 'assessor-1',
+  email: 'assessor@example.com',
+  role: Role.ASSESSOR,
+};
+const mentor: JwtPayload = { sub: 'mentor-1', email: 'mentor@example.com', role: Role.MENTOR };
+
+const ownerScope = { ownerId: owner.sub };
+const assessorScope = { assignedToId: assessor.sub };
+const mentorScope = { assignedToId: mentor.sub };
 
 function scoreRow(storeId: string, totalScore: number | null, name = 'ร้านทดสอบ'): StoreScoreRow {
   return {
@@ -43,8 +53,6 @@ describe('DashboardService', () => {
             findScoresByRound: jest.fn().mockResolvedValue([]),
             findLatestScores: jest.fn().mockResolvedValue([]),
             findLastSubmittedAt: jest.fn().mockResolvedValue(null),
-            countStoresAwaitingT1: jest.fn().mockResolvedValue(0),
-            countUnresolvedRedFlags: jest.fn().mockResolvedValue(0),
           },
         },
         {
@@ -155,12 +163,30 @@ describe('DashboardService', () => {
     it('should scope every query to the stores an ENTREPRENEUR owns', async () => {
       await service.getKpis(owner);
 
-      expect(repository.countStores).toHaveBeenCalledWith(owner.sub);
-      expect(repository.countSubmittedByRound).toHaveBeenCalledWith(Round.T0, owner.sub);
-      expect(repository.countStoresByStatus).toHaveBeenCalledWith(owner.sub);
-      expect(repository.findRoundScores).toHaveBeenCalledWith(expect.anything(), owner.sub);
-      expect(repository.findLatestScores).toHaveBeenCalledWith(owner.sub);
-      expect(repository.findLastSubmittedAt).toHaveBeenCalledWith(owner.sub);
+      expect(repository.countStores).toHaveBeenCalledWith(ownerScope);
+      expect(repository.countSubmittedByRound).toHaveBeenCalledWith(Round.T0, ownerScope);
+      expect(repository.countStoresByStatus).toHaveBeenCalledWith(ownerScope);
+      expect(repository.findRoundScores).toHaveBeenCalledWith(expect.anything(), ownerScope);
+      expect(repository.findLatestScores).toHaveBeenCalledWith(ownerScope);
+      expect(repository.findLastSubmittedAt).toHaveBeenCalledWith(ownerScope);
+    });
+
+    it('should scope every query to the stores an ASSESSOR is assigned', async () => {
+      await service.getKpis(assessor);
+
+      expect(repository.countStores).toHaveBeenCalledWith(assessorScope);
+      expect(repository.countSubmittedByRound).toHaveBeenCalledWith(Round.T0, assessorScope);
+      expect(repository.countStoresByStatus).toHaveBeenCalledWith(assessorScope);
+      expect(repository.findRoundScores).toHaveBeenCalledWith(expect.anything(), assessorScope);
+      expect(repository.findLatestScores).toHaveBeenCalledWith(assessorScope);
+      expect(repository.findLastSubmittedAt).toHaveBeenCalledWith(assessorScope);
+    });
+
+    it('should scope every query to the stores a MENTOR is assigned', async () => {
+      await service.getKpis(mentor);
+
+      expect(repository.countStores).toHaveBeenCalledWith(mentorScope);
+      expect(repository.findLatestScores).toHaveBeenCalledWith(mentorScope);
     });
 
     it('should leave a staff role unscoped', async () => {
@@ -168,6 +194,14 @@ describe('DashboardService', () => {
 
       expect(repository.countStores).toHaveBeenCalledWith(undefined);
       expect(repository.findLatestScores).toHaveBeenCalledWith(undefined);
+    });
+
+    // targetStores is the programme's own goal, not a count of what the caller
+    // reaches — a narrowed role still measures itself against all of it.
+    it('should keep targetStores project-wide for a narrowed role', async () => {
+      const result = await service.getKpis(assessor);
+
+      expect(result.targetStores).toBe(STORE_TARGET_TOTAL);
     });
   });
 
@@ -193,7 +227,15 @@ describe('DashboardService', () => {
     it('should count only the provinces an ENTREPRENEUR owns stores in', async () => {
       await service.getProvinceDistribution(owner);
 
-      expect(repository.countStoresByProvince).toHaveBeenCalledWith(owner.sub);
+      expect(repository.countStoresByProvince).toHaveBeenCalledWith(ownerScope);
+    });
+
+    it('should count only the provinces a narrowed role is assigned stores in', async () => {
+      await service.getProvinceDistribution(assessor);
+      expect(repository.countStoresByProvince).toHaveBeenCalledWith(assessorScope);
+
+      await service.getProvinceDistribution(mentor);
+      expect(repository.countStoresByProvince).toHaveBeenCalledWith(mentorScope);
     });
   });
 
@@ -249,10 +291,18 @@ describe('DashboardService', () => {
 
     it('should rank only the stores an ENTREPRENEUR owns', async () => {
       await service.getTop20({}, owner);
-      expect(repository.findLatestScores).toHaveBeenCalledWith(owner.sub);
+      expect(repository.findLatestScores).toHaveBeenCalledWith(ownerScope);
 
       await service.getTop20({ round: Round.T2 }, owner);
-      expect(repository.findScoresByRound).toHaveBeenCalledWith(Round.T2, 20, owner.sub);
+      expect(repository.findScoresByRound).toHaveBeenCalledWith(Round.T2, 20, ownerScope);
+    });
+
+    it('should rank only the stores a narrowed role is assigned', async () => {
+      await service.getTop20({}, assessor);
+      expect(repository.findLatestScores).toHaveBeenCalledWith(assessorScope);
+
+      await service.getTop20({ round: Round.T2 }, mentor);
+      expect(repository.findScoresByRound).toHaveBeenCalledWith(Round.T2, 20, mentorScope);
     });
   });
 
@@ -309,9 +359,9 @@ describe('DashboardService', () => {
     it('should build the funnel from the stores an ENTREPRENEUR owns', async () => {
       await service.getIncubationProgress(owner);
 
-      expect(repository.countStores).toHaveBeenCalledWith(owner.sub);
-      expect(repository.countStoresByStatus).toHaveBeenCalledWith(owner.sub);
-      expect(repository.countSubmittedByRound).toHaveBeenCalledWith(Round.T0, owner.sub);
+      expect(repository.countStores).toHaveBeenCalledWith(ownerScope);
+      expect(repository.countStoresByStatus).toHaveBeenCalledWith(ownerScope);
+      expect(repository.countSubmittedByRound).toHaveBeenCalledWith(Round.T0, ownerScope);
     });
   });
 
@@ -451,7 +501,7 @@ describe('DashboardService', () => {
 
       expect(repository.findProvinceRoundScores).toHaveBeenCalledWith(
         [Round.T0, Round.T1],
-        owner.sub,
+        ownerScope,
       );
     });
   });
@@ -487,7 +537,15 @@ describe('DashboardService', () => {
     it('should list only the stores an ENTREPRENEUR owns', async () => {
       await service.getStoreRoundScores(owner);
 
-      expect(repository.findStoreRoundScores).toHaveBeenCalledWith(owner.sub);
+      expect(repository.findStoreRoundScores).toHaveBeenCalledWith(ownerScope);
+    });
+
+    it('should list only the stores a narrowed role is assigned', async () => {
+      await service.getStoreRoundScores(assessor);
+      expect(repository.findStoreRoundScores).toHaveBeenCalledWith(assessorScope);
+
+      await service.getStoreRoundScores(mentor);
+      expect(repository.findStoreRoundScores).toHaveBeenCalledWith(mentorScope);
     });
   });
 
@@ -513,38 +571,28 @@ describe('DashboardService', () => {
     it('should export only the stores an ENTREPRENEUR owns', async () => {
       await service.exportStoreRoundScores(owner);
 
-      expect(repository.findStoreRoundScores).toHaveBeenCalledWith(owner.sub);
+      expect(repository.findStoreRoundScores).toHaveBeenCalledWith(ownerScope);
+    });
+
+    it('should export only the stores a narrowed role is assigned', async () => {
+      await service.exportStoreRoundScores(assessor);
+
+      expect(repository.findStoreRoundScores).toHaveBeenCalledWith(assessorScope);
     });
   });
 
   describe('getActivities', () => {
-    it('should raise an urgent item for stores still missing T1', async () => {
-      repository.countStoresAwaitingT1.mockResolvedValue(36);
-
-      const result = await service.getActivities(admin);
-
-      expect(result).toHaveLength(1);
-      expect(result[0]).toMatchObject({
-        type: 'warning',
-        title: 'ร้านอาหาร 36 ร้าน ยังไม่ประเมิน T1',
-        urgent: true,
-      });
+    it('should return nothing when no news has been published', async () => {
+      await expect(service.getActivities()).resolves.toEqual([]);
     });
 
-    it('should raise an item for unresolved red flags', async () => {
-      repository.countUnresolvedRedFlags.mockResolvedValue(4);
+    it('should read the feed from the news module only', async () => {
+      await service.getActivities();
 
-      const result = await service.getActivities(admin);
-
-      expect(result).toHaveLength(1);
-      expect(result[0].title).toContain('4');
+      expect(newsService.listForFeed).toHaveBeenCalledWith(10);
     });
 
-    it('should return nothing when there is no follow-up', async () => {
-      await expect(service.getActivities(admin)).resolves.toEqual([]);
-    });
-
-    it('should append published announcements mapped to their feed type', async () => {
+    it('should map published announcements onto their feed type', async () => {
       newsService.listForFeed.mockResolvedValue([
         {
           id: 'news-1',
@@ -568,15 +616,14 @@ describe('DashboardService', () => {
         },
       ]);
 
-      const result = await service.getActivities(admin);
+      const result = await service.getActivities();
 
       expect(result).toHaveLength(2);
       expect(result[0]).toMatchObject({ type: 'event', urgent: false });
       expect(result[1]).toMatchObject({ type: 'warning', urgent: true });
     });
 
-    it('should keep auto-generated warnings ahead of announcements', async () => {
-      repository.countStoresAwaitingT1.mockResolvedValue(36);
+    it('should map a general announcement onto the announcement type', async () => {
       newsService.listForFeed.mockResolvedValue([
         {
           id: 'news-1',
@@ -590,17 +637,9 @@ describe('DashboardService', () => {
         },
       ]);
 
-      const result = await service.getActivities(admin);
+      const result = await service.getActivities();
 
-      expect(result[0].title).toContain('ยังไม่ประเมิน T1');
-      expect(result[1]).toMatchObject({ type: 'announcement', title: 'ประกาศทั่วไป' });
-    });
-
-    it('should raise follow-ups only for the stores an ENTREPRENEUR owns', async () => {
-      await service.getActivities(owner);
-
-      expect(repository.countStoresAwaitingT1).toHaveBeenCalledWith(owner.sub);
-      expect(repository.countUnresolvedRedFlags).toHaveBeenCalledWith(owner.sub);
+      expect(result[0]).toMatchObject({ type: 'announcement', title: 'ประกาศทั่วไป' });
     });
   });
 

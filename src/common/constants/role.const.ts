@@ -36,6 +36,23 @@ export function canReadAssessment(role: string): boolean {
   return ASSESSMENT_READ_ROLES.some((allowed) => allowed === role);
 }
 
+// The roles whose access resolves against Store.assignedUsers — the ASSIGNED
+// data scope. One list, two readers that must never drift: UserService.assignStores
+// decides who may be given an assignment, resolveStoreScope / StoreService.assertVisible
+// decides what an assignment is worth. A role in one and not the other is either
+// an assignment nothing reads or a scope nobody can fill.
+//
+// ASSESSOR — the stores it may score (AssessmentService.assertAssignedToStore).
+// MENTOR — the stores it may open at all, which is how it reaches an assessment
+// to build the IDP from ("แบบ 50 ข้อ" §3.4).
+export const ASSIGNMENT_SCOPED_ROLES: Role[] = [Role.ASSESSOR, Role.MENTOR];
+
+// Same string-at-the-token-boundary rule as isAdminRole: an unknown role in a
+// token must fail the check rather than the type-check.
+export function isAssignmentScopedRole(role: string): boolean {
+  return ASSIGNMENT_SCOPED_ROLES.some((scoped) => scoped === role);
+}
+
 // An allow-list, not a deny-list — a role added to the enum later must be opted
 // in here deliberately, never inherit self-registration by default.
 // POST /auth/register creates a PENDING account and issues no tokens, so what

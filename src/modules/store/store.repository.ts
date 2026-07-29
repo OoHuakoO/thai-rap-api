@@ -8,17 +8,11 @@ import {
   type StoreDocument,
 } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
+import { storeScopeWhere, type StoreListScope } from '@shared/store-scope.util';
 import type { QueryStoreDto } from './dto/query-store.dto';
 import type { LatestAssessmentInfo } from './types/store-result.type';
 
 export type PhotoField = 'menuPhotos' | 'storePhotos';
-
-// Who the directory is being listed *for*. `ownerId` is the ENTREPRENEUR's own
-// store; `assignedToId` is the assessor's assignment list (Store.assignedUsers).
-export interface StoreListScope {
-  ownerId?: string;
-  assignedToId?: string;
-}
 
 const STORE_SELECT = {
   id: true,
@@ -48,15 +42,8 @@ const STORE_SELECT = {
 export class StoreRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private scopeWhere(scope?: StoreListScope): Prisma.StoreWhereInput {
-    const where: Prisma.StoreWhereInput = {};
-    if (scope?.ownerId) where.ownerId = scope.ownerId;
-    if (scope?.assignedToId) where.assignedUsers = { some: { id: scope.assignedToId } };
-    return where;
-  }
-
   private buildWhere(query: QueryStoreDto, scope?: StoreListScope): Prisma.StoreWhereInput {
-    const where: Prisma.StoreWhereInput = this.scopeWhere(scope);
+    const where: Prisma.StoreWhereInput = storeScopeWhere(scope);
     if (query.search) {
       where.OR = [
         { code: { contains: query.search } },
@@ -73,7 +60,7 @@ export class StoreRepository {
 
   async findIdsByScope(scope: StoreListScope): Promise<string[]> {
     const rows = await this.prisma.store.findMany({
-      where: this.scopeWhere(scope),
+      where: storeScopeWhere(scope),
       select: { id: true },
     });
     return rows.map((row) => row.id);

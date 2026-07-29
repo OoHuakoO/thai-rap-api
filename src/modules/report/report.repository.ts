@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AssessmentStatus, Prisma, Round } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
+import { assessmentStoreScopeWhere, type StoreListScope } from '@shared/store-scope.util';
 
 const SUBMITTED_STATUSES = [AssessmentStatus.SUBMITTED, AssessmentStatus.APPROVED];
 
@@ -87,12 +88,12 @@ export class ReportRepository {
 
   // Every downloadable report is a rendering of a submitted round, so the list of
   // reports that exist is exactly this query — there is no report table.
-  findRecentSubmitted(limit: number, ownerId?: string): Promise<AvailableReportRow[]> {
+  findRecentSubmitted(limit: number, scope?: StoreListScope): Promise<AvailableReportRow[]> {
     return this.prisma.assessment.findMany({
       where: {
         status: { in: SUBMITTED_STATUSES },
         submittedAt: { not: null },
-        ...(ownerId ? { store: { ownerId } } : {}),
+        ...assessmentStoreScopeWhere(scope),
       },
       orderBy: { submittedAt: 'desc' },
       take: limit,

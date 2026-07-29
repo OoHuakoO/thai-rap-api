@@ -31,6 +31,7 @@ const superAdmin: JwtPayload = {
   role: Role.SUPER_ADMIN,
 };
 const assessor: JwtPayload = { sub: 'assessor-1', email: 'a@example.com', role: Role.ASSESSOR };
+const mentor: JwtPayload = { sub: 'mentor-1', email: 'm@example.com', role: Role.MENTOR };
 const owner: JwtPayload = { sub: 'owner-1', email: 'o@example.com', role: Role.ENTREPRENEUR };
 const otherOwner: JwtPayload = { sub: 'owner-2', email: 'o2@example.com', role: Role.ENTREPRENEUR };
 const viewer: JwtPayload = { sub: 'viewer-1', email: 'v@example.com', role: Role.VIEWER };
@@ -153,6 +154,20 @@ describe('StoreService', () => {
         assignedToId: 'assessor-1',
       });
       expect(repository.count).toHaveBeenCalledWith({}, { assignedToId: 'assessor-1' });
+    });
+
+    // A mentor reads the assessment of the stores it was handed, not of all 50,
+    // so the same list narrows its directory too.
+    it('should narrow the list to the assignment list for MENTOR', async () => {
+      repository.findAll.mockResolvedValue([]);
+      repository.count.mockResolvedValue(0);
+
+      await service.findAll({}, mentor);
+
+      expect(repository.findAll).toHaveBeenCalledWith({}, 0, 10, {
+        assignedToId: 'mentor-1',
+      });
+      expect(repository.count).toHaveBeenCalledWith({}, { assignedToId: 'mentor-1' });
     });
 
     it('should narrow every row to the disclosable fields for VIEWER', async () => {
@@ -283,6 +298,29 @@ describe('StoreService', () => {
       await expect(service.findAccessible('store-1', assessor)).rejects.toBeInstanceOf(
         ForbiddenException,
       );
+    });
+
+    // findAccessible is the door every assessment, report and analytics read
+    // goes through, so this is what makes an unassigned store's ผลประเมิน
+    // unreachable for a mentor — not just missing from the picker.
+    it('should refuse a MENTOR a store it was not assigned', async () => {
+      repository.findById.mockResolvedValue(mockStore);
+      repository.isAssignedTo.mockResolvedValue(false);
+
+      await expect(service.findOne('store-1', mentor)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.findAccessible('store-1', mentor)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('should allow MENTOR a store on its assignment list', async () => {
+      repository.findById.mockResolvedValue(mockStore);
+      repository.isAssignedTo.mockResolvedValue(true);
+
+      const result = await service.findAccessible('store-1', mentor);
+
+      expect(result.id).toBe('store-1');
+      expect(repository.isAssignedTo).toHaveBeenCalledWith('store-1', 'mentor-1');
     });
 
     it('should not query the assignment list for a role that browses everything', async () => {

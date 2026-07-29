@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { NewsType, Role, Round, StoreStatus } from '@prisma/client';
+import { NewsType, Round, StoreStatus } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { STORE_TARGET_TOTAL, STORE_UNSPECIFIED_LABEL } from '@constants/index';
+import { resolveStoreScope } from '@shared/store-scope.util';
 import { NewsService } from '@modules/news/news.service';
 import { ReportService } from '@modules/report/report.service';
 import { buildStoreScoresWorkbook } from './dashboard-export.util';
@@ -51,13 +52,6 @@ const INCUBATION_ROUND_STEPS: { label: string; round: Round }[] = [
 ];
 
 const INCUBATION_SELECTED_STEP_LABEL = 'ผ่านเข้ารอบ';
-
-const ACTIVITY_TEXT = {
-  awaitingT1Title: (count: number) => `ร้านอาหาร ${count} ร้าน ยังไม่ประเมิน T1`,
-  awaitingT1Description: 'กรุณาติดตามและนัดหมายการประเมิน',
-  redFlagTitle: (count: number) => `พบสัญญาณเตือน (Red Flag) ${count} รายการที่ยังไม่แก้ไข`,
-  redFlagDescription: 'กรุณาตรวจสอบและบันทึกแนวทางแก้ไข',
-};
 
 const ASSESSMENT_ROUNDS: Round[] = [Round.T0, Round.T1, Round.T2, Round.T3];
 
@@ -111,7 +105,7 @@ export class DashboardService {
   ) {}
 
   async getKpis(user: JwtPayload): Promise<DashboardKPIs> {
-    const ownerId = this.ownerScope(user);
+    const scope = resolveStoreScope(user);
 
     const [
       totalStores,
@@ -124,15 +118,15 @@ export class DashboardService {
       latestScores,
       lastUpdated,
     ] = await Promise.all([
-      this.dashboardRepo.countStores(ownerId),
-      this.dashboardRepo.countSubmittedByRound(Round.T0, ownerId),
-      this.dashboardRepo.countSubmittedByRound(Round.T1, ownerId),
-      this.dashboardRepo.countSubmittedByRound(Round.T2, ownerId),
-      this.dashboardRepo.countSubmittedByRound(Round.T3, ownerId),
-      this.dashboardRepo.countStoresByStatus(ownerId),
-      this.dashboardRepo.findRoundScores(ASSESSMENT_ROUNDS, ownerId),
-      this.dashboardRepo.findLatestScores(ownerId),
-      this.dashboardRepo.findLastSubmittedAt(ownerId),
+      this.dashboardRepo.countStores(scope),
+      this.dashboardRepo.countSubmittedByRound(Round.T0, scope),
+      this.dashboardRepo.countSubmittedByRound(Round.T1, scope),
+      this.dashboardRepo.countSubmittedByRound(Round.T2, scope),
+      this.dashboardRepo.countSubmittedByRound(Round.T3, scope),
+      this.dashboardRepo.countStoresByStatus(scope),
+      this.dashboardRepo.findRoundScores(ASSESSMENT_ROUNDS, scope),
+      this.dashboardRepo.findLatestScores(scope),
+      this.dashboardRepo.findLastSubmittedAt(scope),
     ]);
 
     const scoresByStore = new Map<string, Map<Round, number>>();
@@ -175,7 +169,7 @@ export class DashboardService {
   }
 
   async getProvinceDistribution(user: JwtPayload): Promise<ProvinceDistributionItem[]> {
-    const rows = await this.dashboardRepo.countStoresByProvince(this.ownerScope(user));
+    const rows = await this.dashboardRepo.countStoresByProvince(resolveStoreScope(user));
     const total = rows.reduce((sum, row) => sum + row.count, 0);
 
     return rows.map((row) => ({
@@ -186,25 +180,25 @@ export class DashboardService {
   }
 
   async getTop20(query: QueryTop20Dto, user: JwtPayload): Promise<Top20Entry[]> {
-    const ownerId = this.ownerScope(user);
+    const scope = resolveStoreScope(user);
     const round = query.round ?? TOP20_ALL_ROUNDS;
     const rows =
       round === TOP20_ALL_ROUNDS
-        ? await this.dashboardRepo.findLatestScores(ownerId)
-        : await this.dashboardRepo.findScoresByRound(round, TOP20_LIMIT, ownerId);
+        ? await this.dashboardRepo.findLatestScores(scope)
+        : await this.dashboardRepo.findScoresByRound(round, TOP20_LIMIT, scope);
 
     return this.toTop20Entries(rows);
   }
 
   async getIncubationProgress(user: JwtPayload): Promise<IncubationStep[]> {
-    const ownerId = this.ownerScope(user);
+    const scope = resolveStoreScope(user);
 
     const [totalStores, statusCounts, roundCounts] = await Promise.all([
-      this.dashboardRepo.countStores(ownerId),
-      this.dashboardRepo.countStoresByStatus(ownerId),
+      this.dashboardRepo.countStores(scope),
+      this.dashboardRepo.countStoresByStatus(scope),
       Promise.all(
         INCUBATION_ROUND_STEPS.map((step) =>
-          this.dashboardRepo.countSubmittedByRound(step.round, ownerId),
+          this.dashboardRepo.countSubmittedByRound(step.round, scope),
         ),
       ),
     ]);
@@ -233,7 +227,7 @@ export class DashboardService {
 
     const rows = await this.dashboardRepo.findProvinceRoundScores(
       [fromRound, toRound],
-      this.ownerScope(user),
+      resolveStoreScope(user),
     );
     const byStore = new Map<string, { province: string; from?: number; to?: number }>();
 
@@ -284,7 +278,7 @@ export class DashboardService {
   }
 
   async getStoreRoundScores(user: JwtPayload): Promise<StoreRoundScores[]> {
-    const rows = await this.dashboardRepo.findStoreRoundScores(this.ownerScope(user));
+    const rows = await this.dashboardRepo.findStoreRoundScores(resolveStoreScope(user));
 
     return rows.map((row) => {
       const scores = Object.fromEntries(
@@ -309,51 +303,20 @@ export class DashboardService {
     return buildStoreScoresWorkbook(rows);
   }
 
-  async getActivities(user: JwtPayload): Promise<ActivityItem[]> {
-    const ownerId = this.ownerScope(user);
-
-    const [awaitingT1, unresolvedRedFlags] = await Promise.all([
-      this.dashboardRepo.countStoresAwaitingT1(ownerId),
-      this.dashboardRepo.countUnresolvedRedFlags(ownerId),
-    ]);
-
-    const now = new Date();
-    const activities: ActivityItem[] = [];
-
-    if (awaitingT1 > 0) {
-      activities.push({
-        type: 'warning',
-        title: ACTIVITY_TEXT.awaitingT1Title(awaitingT1),
-        description: ACTIVITY_TEXT.awaitingT1Description,
-        date: now,
-        urgent: true,
-      });
-    }
-
-    if (unresolvedRedFlags > 0) {
-      activities.push({
-        type: 'warning',
-        title: ACTIVITY_TEXT.redFlagTitle(unresolvedRedFlags),
-        description: ACTIVITY_TEXT.redFlagDescription,
-        date: now,
-        urgent: true,
-      });
-    }
-
-    // Auto-generated warnings come first because they are always "now"; the
-    // published announcements below them are already sorted newest-first.
+  // The feed is the news module and nothing else: every row is an announcement
+  // an ADMIN wrote on /news, so what it shows is editable there. Follow-up
+  // warnings the service used to derive from the data (stores missing T1,
+  // unresolved red flags) are gone — an admin publishes an ALERT item instead.
+  async getActivities(): Promise<ActivityItem[]> {
     const news = await this.newsService.listForFeed(ACTIVITY_NEWS_LIMIT);
-    for (const item of news) {
-      activities.push({
-        type: NEWS_TYPE_TO_ACTIVITY[item.type],
-        title: item.title,
-        description: item.description,
-        date: item.publishedAt,
-        urgent: item.urgent,
-      });
-    }
 
-    return activities;
+    return news.map((item) => ({
+      type: NEWS_TYPE_TO_ACTIVITY[item.type],
+      title: item.title,
+      description: item.description,
+      date: item.publishedAt,
+      urgent: item.urgent,
+    }));
   }
 
   async getReportsStatus(user: JwtPayload): Promise<ReportStatusItem[]> {
@@ -382,12 +345,5 @@ export class DashboardService {
         storeType: row.store.storeType ?? STORE_UNSPECIFIED_LABEL,
         t1Score: round2(row.totalScore),
       }));
-  }
-
-  // An ENTREPRENEUR opens the same overview as staff, restricted to the stores
-  // it owns — returning its own id here is what every repository call filters
-  // on. Staff roles get undefined and keep the project-wide numbers.
-  private ownerScope(user: JwtPayload): string | undefined {
-    return user.role === Role.ENTREPRENEUR ? user.sub : undefined;
   }
 }

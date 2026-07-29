@@ -58,7 +58,7 @@ export class UserController {
   @Patch(':id/assigned-stores')
   @ApiOperation({
     summary:
-      'Replace the stores an assessor may assess — full list, not a delta (super admin only)',
+      'Replace the stores assigned to an assessor or a mentor — full list, not a delta (super admin only)',
   })
   assignStores(
     @Param('id') id: string,

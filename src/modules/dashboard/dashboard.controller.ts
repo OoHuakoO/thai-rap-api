@@ -69,9 +69,9 @@ export class DashboardController {
   }
 
   @Get('activities')
-  @ApiOperation({ summary: 'Get recent activities and urgent follow-ups' })
-  getActivities(@CurrentUser() user: JwtPayload) {
-    return this.dashboardService.getActivities(user);
+  @ApiOperation({ summary: 'Get the published news feed shown on the overview' })
+  getActivities() {
+    return this.dashboardService.getActivities();
   }
 
   @Get('reports-status')

@@ -74,7 +74,6 @@ export class AnalyticsService {
       aiAnalysis: null,
       mentorRecommendations: [],
       incubationStatus: null,
-      lastUpdated: (focusRow?.updatedAt ?? new Date()).toISOString(),
     };
   }
 

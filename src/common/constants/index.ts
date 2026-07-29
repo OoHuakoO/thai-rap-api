@@ -2,7 +2,9 @@ export { ERROR_CODES } from './error-codes.const';
 export {
   ADMIN_ROLES,
   ASSESSMENT_READ_ROLES,
+  ASSIGNMENT_SCOPED_ROLES,
   canReadAssessment,
+  isAssignmentScopedRole,
   isAdminRole,
   SELF_REGISTERABLE_ROLES,
 } from './role.const';

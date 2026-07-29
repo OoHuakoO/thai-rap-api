@@ -476,7 +476,21 @@ describe('ReportService', () => {
     it('should narrow an ENTREPRENEUR to the stores it owns', async () => {
       await service.listAvailableReports(owner);
 
-      expect(repository.findRecentSubmitted).toHaveBeenCalledWith(RECENT_REPORT_LIMIT, owner.sub);
+      expect(repository.findRecentSubmitted).toHaveBeenCalledWith(RECENT_REPORT_LIMIT, {
+        ownerId: owner.sub,
+      });
+    });
+
+    it('should narrow an ASSESSOR and a MENTOR to their assignment list', async () => {
+      await service.listAvailableReports(assessor);
+      expect(repository.findRecentSubmitted).toHaveBeenCalledWith(RECENT_REPORT_LIMIT, {
+        assignedToId: assessor.sub,
+      });
+
+      await service.listAvailableReports(mentor);
+      expect(repository.findRecentSubmitted).toHaveBeenCalledWith(RECENT_REPORT_LIMIT, {
+        assignedToId: mentor.sub,
+      });
     });
 
     it('should offer nothing to a role that cannot read assessments', async () => {

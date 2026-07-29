@@ -141,8 +141,25 @@ describe('UserService', () => {
       expect(result.assignedStoreIds).toEqual(['s1', 's2']);
     });
 
-    it('should throw BadRequestException when the user is not an assessor', async () => {
+    // A mentor takes the same list for the opposite reason: it reads the
+    // assessment rather than writing it, and only for the stores it was given.
+    it('should replace the mentor assignment list', async () => {
       repository.findById.mockResolvedValue({ ...mockUser, role: Role.MENTOR });
+      repository.countStoresByIds.mockResolvedValue(1);
+      repository.setAssignedStores.mockResolvedValue({
+        ...mockUser,
+        role: Role.MENTOR,
+        assignedStores: [{ id: 's1', code: 'RAP69-001', name: 'ร้าน ก' }],
+      });
+
+      const result = await service.assignStores('user-1', { storeIds: ['s1'] }, superAdmin);
+
+      expect(repository.setAssignedStores).toHaveBeenCalledWith('user-1', ['s1']);
+      expect(result.assignedStoreIds).toEqual(['s1']);
+    });
+
+    it('should throw BadRequestException when the role takes no assignment', async () => {
+      repository.findById.mockResolvedValue({ ...mockUser, role: Role.JUDGE });
 
       await expect(
         service.assignStores('user-1', { storeIds: ['s1'] }, superAdmin),
@@ -200,8 +217,24 @@ describe('UserService', () => {
       });
 
       await expect(
-        service.updateRole('user-1', { role: Role.MENTOR }, superAdmin),
+        service.updateRole('user-1', { role: Role.JUDGE }, superAdmin),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    // ASSESSOR and MENTOR both resolve against Store.assignedUsers, so the list
+    // still means something after the move and does not have to be cleared.
+    it('should keep the assignments when moving between two assignment-scoped roles', async () => {
+      const assigned = [{ id: 's1', code: 'RAP69-001', name: 'ร้าน ก' }];
+      repository.findById.mockResolvedValue({ ...mockUser, assignedStores: assigned });
+      repository.updateRole.mockResolvedValue({
+        ...mockUser,
+        role: Role.MENTOR,
+        assignedStores: assigned,
+      });
+
+      const result = await service.updateRole('user-1', { role: Role.MENTOR }, superAdmin);
+
+      expect(result.assignedStoreIds).toEqual(['s1']);
     });
   });
 

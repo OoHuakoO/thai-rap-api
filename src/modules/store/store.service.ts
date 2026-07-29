@@ -13,13 +13,15 @@ import {
   PHOTO_ALLOWED_EXTENSIONS,
   STORE_DOCUMENT_ALLOWED_EXTENSIONS,
   isAdminRole,
+  isAssignmentScopedRole,
 } from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
 import { saveLocalFile, deleteLocalFile, deleteLocalDir } from '@shared/file-storage.util';
+import { resolveStoreScope } from '@shared/store-scope.util';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { ProvinceService } from '@modules/province/province.service';
 import { StoreTypeService } from '@modules/store-type/store-type.service';
-import { StoreRepository, type PhotoField, type StoreListScope } from './store.repository';
+import { StoreRepository, type PhotoField } from './store.repository';
 import type { CreateStoreDto } from './dto/create-store.dto';
 import type { UpdateStoreDto, UpdateStoreStatusDto } from './dto/update-store.dto';
 import type { QueryStoreDto } from './dto/query-store.dto';
@@ -43,7 +45,7 @@ export class StoreService {
     user: JwtPayload,
   ): Promise<PaginatedResult<StoreResult | PublicStoreResult>> {
     const { skip, take, page, limit } = normalizePagination(query);
-    const scope = this.listScope(user);
+    const scope = resolveStoreScope(user);
     const [items, total] = await Promise.all([
       this.storeRepo.findAll(query, skip, take, scope),
       this.storeRepo.count(query, scope),
@@ -55,28 +57,12 @@ export class StoreService {
     return buildPaginatedResult(results, total, page, limit);
   }
 
-  // Two roles browse a narrowed directory instead of the whole one:
-  //   ENTREPRENEUR — only the stores it owns. It used to browse everything
-  //     because an admin-registered store carried no ownerId and left a fresh
-  //     account with nothing; a SUPER_ADMIN now hands the store over with
-  //     PATCH /users/:id/owned-stores, so ownership is the filter again and
-  //     "ผู้ประกอบการจะไม่สามารถเห็นข้อมูลของร้านอื่น" (แบบ 50 ข้อ §3.2) means the
-  //     other stores are absent, not merely stripped.
-  //   ASSESSOR — only its assignment list, since that is all it may score.
-  //     The assessment store picker reads this, and an assessor with no
-  //     assignments gets an empty one: intended, not a bug.
-  private listScope(user: JwtPayload): StoreListScope | undefined {
-    if (user.role === Role.ENTREPRENEUR) return { ownerId: user.sub };
-    if (user.role === Role.ASSESSOR) return { assignedToId: user.sub };
-    return undefined;
-  }
-
   // The id list behind the same narrowing findAll() applies, for callers that
   // aggregate across stores instead of listing them (the cross-store report).
   // `null` means "not narrowed" — an empty array means the caller reaches no
   // store at all, and the two must not collapse into one another.
   async findAccessibleStoreIds(user: JwtPayload): Promise<string[] | null> {
-    const scope = this.listScope(user);
+    const scope = resolveStoreScope(user);
     if (!scope) return null;
     return this.storeRepo.findIdsByScope(scope);
   }
@@ -403,18 +389,21 @@ export class StoreService {
     throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง');
   }
 
-  // The single-store mirror of listScope(): a role whose directory is narrowed
+  // The single-store mirror of resolveStoreScope(): a role whose directory is narrowed
   // must not reach the stores it left out by guessing the id. The assignment
-  // lookup is a second query, so it runs for ASSESSOR alone — every other role
-  // resolves without touching the database.
+  // lookup is a second query, so it runs for the assignment-scoped roles alone
+  // — every other role resolves without touching the database.
   private async assertVisible(user: JwtPayload, store: Store): Promise<void> {
     if (user.role === Role.ENTREPRENEUR && store.ownerId !== user.sub) {
       throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึง');
     }
-    if (user.role === Role.ASSESSOR && !(await this.storeRepo.isAssignedTo(store.id, user.sub))) {
+    if (
+      isAssignmentScopedRole(user.role) &&
+      !(await this.storeRepo.isAssignedTo(store.id, user.sub))
+    ) {
       throw new ForbiddenException(
         ERROR_CODES.PERM.FORBIDDEN,
-        'ร้านนี้ไม่ได้อยู่ในรายการที่คุณได้รับมอบหมายให้ประเมิน',
+        'ร้านนี้ไม่ได้อยู่ในรายการที่คุณได้รับมอบหมาย',
       );
     }
   }
