@@ -3,6 +3,7 @@ import { NewsType, Role, Round, StoreStatus } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { STORE_TARGET_TOTAL, STORE_UNSPECIFIED_LABEL } from '@constants/index';
 import { NewsService } from '@modules/news/news.service';
+import { ReportService } from '@modules/report/report.service';
 import { buildStoreScoresWorkbook } from './dashboard-export.util';
 import {
   DashboardRepository,
@@ -106,6 +107,7 @@ export class DashboardService {
   constructor(
     private readonly dashboardRepo: DashboardRepository,
     private readonly newsService: NewsService,
+    private readonly reportService: ReportService,
   ) {}
 
   async getKpis(user: JwtPayload): Promise<DashboardKPIs> {
@@ -354,11 +356,17 @@ export class DashboardService {
     return activities;
   }
 
-  // Reports are not modelled in the database yet (no Report table in
-  // schema.prisma), so the contract's shape is served with no rows rather than
-  // leaving the endpoint missing and 404-ing the dashboard card.
-  async getReportsStatus(_user: JwtPayload): Promise<ReportStatusItem[]> {
-    return [];
+  async getReportsStatus(user: JwtPayload): Promise<ReportStatusItem[]> {
+    const reports = await this.reportService.listAvailableReports(user);
+
+    return reports.map((report) => ({
+      id: report.id,
+      name: report.name,
+      format: report.format,
+      createdAt: report.createdAt,
+      status: report.status,
+      downloadUrl: report.downloadPath,
+    }));
   }
 
   private toTop20Entries(rows: StoreScoreRow[]): Top20Entry[] {

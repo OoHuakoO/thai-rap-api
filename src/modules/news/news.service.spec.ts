@@ -57,7 +57,7 @@ describe('NewsService', () => {
     it('should flatten the author name onto each item', async () => {
       repository.findAll.mockResolvedValue([newsRow()]);
 
-      const result = await service.findAll({}, admin);
+      const result = await service.findAll({});
 
       expect(result[0].authorName).toBe('ผู้ดูแลระบบ');
       expect(repository.findAll).toHaveBeenCalledWith({
@@ -67,25 +67,23 @@ describe('NewsService', () => {
     });
 
     it('should pass the type filter and limit through', async () => {
-      await service.findAll({ type: NewsType.EVENT, limit: 5 }, superAdmin);
+      await service.findAll({ type: NewsType.EVENT, limit: 5 });
 
       expect(repository.findAll).toHaveBeenCalledWith({ type: NewsType.EVENT, limit: 5 });
-    });
-
-    it('should reject a non-admin role before touching the repository', async () => {
-      await expect(service.findAll({}, assessor)).rejects.toThrow(ForbiddenException);
-      expect(repository.findAll).not.toHaveBeenCalled();
     });
   });
 
   describe('findOne', () => {
     it('should throw when the announcement does not exist', async () => {
-      await expect(service.findOne('missing', admin)).rejects.toThrow(NotFoundException);
+      await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
     });
 
-    it('should reject a non-admin role', async () => {
-      await expect(service.findOne('news-1', assessor)).rejects.toThrow(ForbiddenException);
-      expect(repository.findById).not.toHaveBeenCalled();
+    it('should return the announcement to a non-admin role', async () => {
+      repository.findById.mockResolvedValue(newsRow());
+
+      const result = await service.findOne('news-1');
+
+      expect(result.title).toBe('อัปเดตเกณฑ์การประเมินโครงการ ปี 2569');
     });
   });
 

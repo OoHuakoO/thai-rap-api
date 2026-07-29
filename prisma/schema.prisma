@@ -100,10 +100,10 @@ model User {
 
   refreshToken     RefreshToken?
   passwordResetOtp PasswordResetOtp?
-  assessments    Assessment[]
-  assignedStores Store[]       @relation("AssignedAssessor")
-  ownedStores    Store[]       @relation("StoreOwner")
-  authoredNews   News[]        @relation("NewsAuthor")
+  assessments      Assessment[]
+  assignedStores   Store[]           @relation("AssignedAssessor")
+  ownedStores      Store[]           @relation("StoreOwner")
+  authoredNews     News[]            @relation("NewsAuthor")
 }
 
 // ประชาสัมพันธ์ — the announcements the dashboard activity feed renders.
@@ -152,32 +152,32 @@ model PasswordResetOtp {
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 model Store {
-  id               String      @id @default(cuid())
+  id            String      @id @default(cuid())
   // Project-wide identifier printed on every offline form and Excel export
   // (RAP69-001…). It is how a spreadsheet row is matched back to a row here —
   // the cuid id exists nowhere outside this database.
-  code             String      @unique
-  name             String
+  code          String      @unique
+  name          String
   // Nullable because the onboarding spreadsheet arrives with these blank for
   // most stores; the create form still requires them for a store keyed in by hand.
-  province         String?
-  storeType        String?
-  ownerName        String?
-  phone            String?
-  email            String?
-  address          String?     @db.Text
-  socialLinks      Json        @default("{}")
-  avgRevenueMin    Float?
-  avgRevenueMax    Float?
-  mainProblems     Json        @default("[]")
-  goals            Json        @default("[]")
-  menuPhotos       Json        @default("[]")
-  coverUrl         String?
-  storePhotos      Json        @default("[]")
-  status           StoreStatus @default(REGISTERED)
-  ownerId          String?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  province      String?
+  storeType     String?
+  ownerName     String?
+  phone         String?
+  email         String?
+  address       String?     @db.Text
+  socialLinks   Json        @default("{}")
+  avgRevenueMin Float?
+  avgRevenueMax Float?
+  mainProblems  Json        @default("[]")
+  goals         Json        @default("[]")
+  menuPhotos    Json        @default("[]")
+  coverUrl      String?
+  storePhotos   Json        @default("[]")
+  status        StoreStatus @default(REGISTERED)
+  ownerId       String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   owner         User?           @relation("StoreOwner", fields: [ownerId], references: [id])
   assessments   Assessment[]
@@ -299,3 +299,7 @@ model RedFlag {
 
   assessment Assessment @relation(fields: [assessmentId], references: [id])
 }
+
+// A report is not stored: the list on the dashboard and the /reports page is
+// derived from the submitted assessments a caller may read, and every download
+// re-renders the file from those scores. Nothing here to persist.

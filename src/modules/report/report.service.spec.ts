@@ -6,7 +6,7 @@ import { ERROR_CODES } from '@constants/index';
 import { DimensionService } from '@modules/assessment/dimension.service';
 import { StoreService } from '@modules/store/store.service';
 import { ReportRepository, type RoundReportRow } from './report.repository';
-import { ReportService } from './report.service';
+import { RECENT_REPORT_LIMIT, ReportService } from './report.service';
 
 const admin: JwtPayload = { sub: 'admin-1', email: 'admin@example.com', role: Role.ADMIN };
 const owner: JwtPayload = { sub: 'owner-1', email: 'owner@example.com', role: Role.ENTREPRENEUR };
@@ -77,6 +77,7 @@ describe('ReportService', () => {
           useValue: {
             findSubmittedRound: jest.fn().mockResolvedValue(null),
             findSubmittedRounds: jest.fn().mockResolvedValue([]),
+            findRecentSubmitted: jest.fn().mockResolvedValue([]),
           },
         },
         {
@@ -239,6 +240,100 @@ describe('ReportService', () => {
       const file = await service.exportOverviewReport('store-1', 'xlsx', admin);
 
       expect(file.subarray(0, 2).toString()).toBe('PK');
+    });
+  });
+
+  describe('listAvailableReports', () => {
+    const submittedAt = new Date('2026-07-29T02:00:00.000Z');
+
+    function submittedRow(round: Round, storeId = 'store-1', at = submittedAt) {
+      return { storeId, round, submittedAt: at, store: { name: 'ครัวริมธาร' } };
+    }
+
+    it('should offer a round report and an overview report in both formats', async () => {
+      repository.findRecentSubmitted.mockResolvedValue([submittedRow(Round.T1)]);
+
+      const result = await service.listAvailableReports(admin);
+
+      expect(result).toEqual([
+        {
+          id: 'store-1:T1:xlsx',
+          name: 'รายงานผลการประเมิน T1 - ครัวริมธาร',
+          format: 'XLSX',
+          status: 'DONE',
+          createdAt: submittedAt,
+          downloadPath: '/reports/stores/store-1/rounds/T1/export?format=xlsx',
+        },
+        {
+          id: 'store-1:T1:pdf',
+          name: 'รายงานผลการประเมิน T1 - ครัวริมธาร',
+          format: 'PDF',
+          status: 'DONE',
+          createdAt: submittedAt,
+          downloadPath: '/reports/stores/store-1/rounds/T1/export?format=pdf',
+        },
+        {
+          id: 'store-1:overview:xlsx',
+          name: 'รายงานสรุปผลทุกรอบ - ครัวริมธาร',
+          format: 'XLSX',
+          status: 'DONE',
+          createdAt: submittedAt,
+          downloadPath: '/reports/stores/store-1/overview/export?format=xlsx',
+        },
+        {
+          id: 'store-1:overview:pdf',
+          name: 'รายงานสรุปผลทุกรอบ - ครัวริมธาร',
+          format: 'PDF',
+          status: 'DONE',
+          createdAt: submittedAt,
+          downloadPath: '/reports/stores/store-1/overview/export?format=pdf',
+        },
+      ]);
+    });
+
+    it('should list a store overview once no matter how many rounds it submitted', async () => {
+      const older = new Date('2026-07-01T00:00:00.000Z');
+      repository.findRecentSubmitted.mockResolvedValue([
+        submittedRow(Round.T1),
+        submittedRow(Round.T0, 'store-1', older),
+      ]);
+
+      const result = await service.listAvailableReports(admin);
+      const overviews = result.filter((report) => report.id.includes(':overview:'));
+
+      expect(overviews).toHaveLength(2);
+      // Dated by the newest round it covers, not the oldest.
+      expect(overviews.every((report) => report.createdAt === submittedAt)).toBe(true);
+    });
+
+    it('should read every store for staff', async () => {
+      await service.listAvailableReports(admin);
+
+      expect(repository.findRecentSubmitted).toHaveBeenCalledWith(RECENT_REPORT_LIMIT, undefined);
+    });
+
+    it('should narrow an ENTREPRENEUR to the stores it owns', async () => {
+      await service.listAvailableReports(owner);
+
+      expect(repository.findRecentSubmitted).toHaveBeenCalledWith(RECENT_REPORT_LIMIT, owner.sub);
+    });
+
+    it('should offer nothing to a role that cannot read assessments', async () => {
+      await expect(service.listAvailableReports(viewer)).resolves.toEqual([]);
+      await expect(service.listAvailableReports(judge)).resolves.toEqual([]);
+      expect(repository.findRecentSubmitted).not.toHaveBeenCalled();
+    });
+
+    it('should cap the list at the dashboard card limit', async () => {
+      repository.findRecentSubmitted.mockResolvedValue([
+        submittedRow(Round.T0, 'store-1'),
+        submittedRow(Round.T0, 'store-2'),
+        submittedRow(Round.T0, 'store-3'),
+      ]);
+
+      const result = await service.listAvailableReports(admin);
+
+      expect(result).toHaveLength(RECENT_REPORT_LIMIT);
     });
   });
 });

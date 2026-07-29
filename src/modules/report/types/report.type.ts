@@ -57,3 +57,20 @@ export interface OverviewReport {
   }[];
   unresolvedRedFlagCount: number;
 }
+
+/**
+ * One report the caller may download, listed on the dashboard's เอกสาร / รายงาน
+ * card. Derived from a submitted round, never stored — see AVAILABLE_REPORT_KIND.
+ */
+export interface AvailableReport {
+  /** Synthetic and stable: store + round (or overview) + format. */
+  id: string;
+  name: string;
+  format: 'PDF' | 'XLSX';
+  /** A submitted round is always renderable, so nothing else is reachable. */
+  status: 'DONE';
+  /** When the underlying round was submitted — the report's "วันที่สร้าง". */
+  createdAt: Date;
+  /** API route that renders this file; there is no stored artifact to link to. */
+  downloadPath: string;
+}

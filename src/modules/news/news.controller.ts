@@ -15,16 +15,16 @@ export class NewsController {
 
   @Get()
   @ApiOperation({
-    summary: 'List announcements, newest first with urgent items pinned (admin / super admin only)',
+    summary: 'List announcements, newest first with urgent items pinned (any signed-in role)',
   })
-  findAll(@Query() query: QueryNewsDto, @CurrentUser() user: JwtPayload) {
-    return this.newsService.findAll(query, user);
+  findAll(@Query() query: QueryNewsDto) {
+    return this.newsService.findAll(query);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single announcement (admin / super admin only)' })
-  findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return this.newsService.findOne(id, user);
+  @ApiOperation({ summary: 'Get a single announcement (any signed-in role)' })
+  findOne(@Param('id') id: string) {
+    return this.newsService.findOne(id);
   }
 
   @Post()

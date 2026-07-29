@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Round } from '@prisma/client';
+import { Role, Round } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { ForbiddenException, NotFoundException } from '@common/exceptions/app.exception';
 import { ERROR_CODES, canReadAssessment, STORE_UNSPECIFIED_LABEL } from '@constants/index';
@@ -10,11 +10,12 @@ import {
   type DimensionInfo,
 } from '@modules/assessment/assessment-scoring.util';
 import { StoreService } from '@modules/store/store.service';
-import type { ReportFormat } from './dto/report-format.dto';
+import { REPORT_FORMATS, type ReportFormat } from './dto/report-format.dto';
 import { buildOverviewReportWorkbook, buildRoundReportWorkbook } from './report-excel.util';
 import { buildOverviewReportPdf, buildRoundReportPdf } from './report-pdf.util';
 import { ReportRepository, type RoundReportRow } from './report.repository';
 import type {
+  AvailableReport,
   OverviewReport,
   OverviewRoundSummary,
   ReportDimensionScore,
@@ -23,6 +24,19 @@ import type {
 } from './types/report.type';
 
 export const REPORT_ROUNDS: Round[] = [Round.T0, Round.T1, Round.T2, Round.T3];
+
+// The dashboard card shows a handful of rows and links to /reports for the rest.
+export const RECENT_REPORT_LIMIT = 5;
+
+const REPORT_FORMAT_LABEL: Record<ReportFormat, AvailableReport['format']> = {
+  xlsx: 'XLSX',
+  pdf: 'PDF',
+};
+
+const REPORT_NAME = {
+  round: (storeName: string, round: Round) => `รายงานผลการประเมิน ${round} - ${storeName}`,
+  overview: (storeName: string) => `รายงานสรุปผลทุกรอบ - ${storeName}`,
+};
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
@@ -140,6 +154,58 @@ export class ReportService {
   ): Promise<Buffer> {
     const report = await this.getOverviewReport(storeId, user);
     return format === 'pdf' ? buildOverviewReportPdf(report) : buildOverviewReportWorkbook(report);
+  }
+
+  // Two report kinds per store, per แบบ 50 ข้อ: one per assessed round, and one
+  // spanning every round. Both come straight from the submitted assessments the
+  // caller may read, so a store sees its reports the moment a round is submitted
+  // — nothing has to be exported first for the list to fill.
+  async listAvailableReports(user: JwtPayload): Promise<AvailableReport[]> {
+    // JUDGE and VIEWER read no assessment, so no report exists for them. An empty
+    // list keeps the dashboard card rendering instead of 403-ing the whole page.
+    if (!canReadAssessment(user.role)) return [];
+
+    const ownerId = user.role === Role.ENTREPRENEUR ? user.sub : undefined;
+    const rows = await this.reportRepo.findRecentSubmitted(RECENT_REPORT_LIMIT, ownerId);
+
+    const reports: AvailableReport[] = [];
+    const storesWithOverview = new Set<string>();
+
+    for (const row of rows) {
+      // findRecentSubmitted filters these out; the select type stays nullable.
+      if (!row.submittedAt) continue;
+
+      for (const format of REPORT_FORMATS) {
+        reports.push({
+          id: `${row.storeId}:${row.round}:${format}`,
+          name: REPORT_NAME.round(row.store.name, row.round),
+          format: REPORT_FORMAT_LABEL[format],
+          status: 'DONE',
+          createdAt: row.submittedAt,
+          downloadPath: `/reports/stores/${row.storeId}/rounds/${row.round}/export?format=${format}`,
+        });
+      }
+
+      // The overview spans every round, so a store contributes it once, dated by
+      // its newest round — rows arrive newest first, so the first one wins.
+      if (storesWithOverview.has(row.storeId)) continue;
+      storesWithOverview.add(row.storeId);
+
+      for (const format of REPORT_FORMATS) {
+        reports.push({
+          id: `${row.storeId}:overview:${format}`,
+          name: REPORT_NAME.overview(row.store.name),
+          format: REPORT_FORMAT_LABEL[format],
+          status: 'DONE',
+          createdAt: row.submittedAt,
+          downloadPath: `/reports/stores/${row.storeId}/overview/export?format=${format}`,
+        });
+      }
+    }
+
+    return reports
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, RECENT_REPORT_LIMIT);
   }
 
   // Every report — round, overview, and both Excel/PDF exports — enters through

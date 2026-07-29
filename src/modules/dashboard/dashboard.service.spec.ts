@@ -3,6 +3,7 @@ import { NewsType, Role, Round, StoreStatus } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { STORE_TARGET_TOTAL } from '@constants/index';
 import { NewsService } from '@modules/news/news.service';
+import { ReportService } from '@modules/report/report.service';
 import { DashboardService } from './dashboard.service';
 import { DashboardRepository, type StoreScoreRow } from './dashboard.repository';
 import { TOP20_ALL_ROUNDS } from './dto/query-top20.dto';
@@ -22,6 +23,7 @@ describe('DashboardService', () => {
   let service: DashboardService;
   let repository: jest.Mocked<DashboardRepository>;
   let newsService: jest.Mocked<NewsService>;
+  let reportService: jest.Mocked<ReportService>;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -49,12 +51,17 @@ describe('DashboardService', () => {
           provide: NewsService,
           useValue: { listForFeed: jest.fn().mockResolvedValue([]) },
         },
+        {
+          provide: ReportService,
+          useValue: { listAvailableReports: jest.fn().mockResolvedValue([]) },
+        },
       ],
     }).compile();
 
     service = module.get<DashboardService>(DashboardService);
     repository = module.get(DashboardRepository);
     newsService = module.get(NewsService);
+    reportService = module.get(ReportService);
   });
 
   describe('getKpis', () => {
@@ -598,12 +605,39 @@ describe('DashboardService', () => {
   });
 
   describe('getReportsStatus', () => {
-    it('should return an empty list while reports are not persisted', async () => {
+    it('should map an available report onto the card contract', async () => {
+      const createdAt = new Date('2026-07-29T02:00:00.000Z');
+      reportService.listAvailableReports.mockResolvedValue([
+        {
+          id: 'store-1:T1:xlsx',
+          name: 'รายงานผลการประเมิน T1 - ครัวริมธาร',
+          format: 'XLSX',
+          status: 'DONE',
+          createdAt,
+          downloadPath: '/reports/stores/store-1/rounds/T1/export?format=xlsx',
+        },
+      ]);
+
+      await expect(service.getReportsStatus(admin)).resolves.toEqual([
+        {
+          id: 'store-1:T1:xlsx',
+          name: 'รายงานผลการประเมิน T1 - ครัวริมธาร',
+          format: 'XLSX',
+          status: 'DONE',
+          createdAt,
+          downloadUrl: '/reports/stores/store-1/rounds/T1/export?format=xlsx',
+        },
+      ]);
+    });
+
+    it('should return an empty list when no round has been submitted yet', async () => {
       await expect(service.getReportsStatus(admin)).resolves.toEqual([]);
     });
 
-    it('should return the same empty list to an ENTREPRENEUR', async () => {
-      await expect(service.getReportsStatus(owner)).resolves.toEqual([]);
+    it('should pass the caller through so the report scope can narrow it', async () => {
+      await service.getReportsStatus(owner);
+
+      expect(reportService.listAvailableReports).toHaveBeenCalledWith(owner);
     });
   });
 });

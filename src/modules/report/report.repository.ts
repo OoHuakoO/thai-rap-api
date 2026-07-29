@@ -24,6 +24,17 @@ const roundReportSelect = {
 
 export type RoundReportRow = Prisma.AssessmentGetPayload<{ select: typeof roundReportSelect }>;
 
+const availableReportSelect = {
+  storeId: true,
+  round: true,
+  submittedAt: true,
+  store: { select: { name: true } },
+} satisfies Prisma.AssessmentSelect;
+
+export type AvailableReportRow = Prisma.AssessmentGetPayload<{
+  select: typeof availableReportSelect;
+}>;
+
 @Injectable()
 export class ReportRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -40,6 +51,21 @@ export class ReportRepository {
       where: { storeId, status: { in: SUBMITTED_STATUSES } },
       orderBy: { round: 'asc' },
       select: roundReportSelect,
+    });
+  }
+
+  // Every downloadable report is a rendering of a submitted round, so the list of
+  // reports that exist is exactly this query — there is no report table.
+  findRecentSubmitted(limit: number, ownerId?: string): Promise<AvailableReportRow[]> {
+    return this.prisma.assessment.findMany({
+      where: {
+        status: { in: SUBMITTED_STATUSES },
+        submittedAt: { not: null },
+        ...(ownerId ? { store: { ownerId } } : {}),
+      },
+      orderBy: { submittedAt: 'desc' },
+      take: limit,
+      select: availableReportSelect,
     });
   }
 }
