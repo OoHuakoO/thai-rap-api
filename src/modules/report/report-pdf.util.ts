@@ -16,6 +16,8 @@ const TITLE_SIZE = 18;
 const HEADING_SIZE = 13;
 const BODY_SIZE = 11;
 const LINE_GAP = 4;
+// Gutter between two grid columns, so wrapped text never touches the next cell.
+const CELL_GAP = 6;
 
 const BRAND_ORANGE = '#F26B21';
 const TEXT_DARK = '#333333';
@@ -46,7 +48,11 @@ const TEXT = {
   dimensionTotal: 'รวมมิติ',
   grandTotal: 'รวมทั้งหมด',
   criticalDimension: 'มิติเร่งแก้ไข',
+  overallLevel: 'ระดับรวม',
   average: 'ค่าเฉลี่ย',
+  dimensionLegend: 'คำอธิบายมิติ',
+  dimensionNumber: (dimensionId: number) => `มิติ ${dimensionId}`,
+  dimensionShort: (dimensionId: number, weight: number) => `มิติ ${dimensionId} (${weight}%)`,
   storeCount: (count: number) => `จำนวนร้านที่ประเมินแล้ว ${count} ร้าน`,
   zone: 'Zone',
   assessor: 'ผู้ประเมิน',
@@ -112,26 +118,33 @@ function row(doc: Doc, cells: string[], columnWidth: number, bold = false): void
 // row() with per-column widths, so a wide table can give the store name more
 // room than the numeric columns. Rows are placed by hand rather than by PDFKit's
 // text flow, which is also why the page break has to be checked here.
+//
+// A cell that does not fit its column wraps onto further lines instead of being
+// truncated — nothing in these reports may be shown half-written — so the row is
+// as tall as its tallest cell, measured before anything is drawn.
 function gridRow(doc: Doc, cells: string[], widths: number[], bold = false): void {
-  const lineHeight = BODY_SIZE + LINE_GAP;
-  if (doc.y + lineHeight > doc.page.height - PAGE_MARGIN) {
-    doc.addPage();
-  }
+  const columnWidth = (index: number): number =>
+    (widths[index] ?? widths[widths.length - 1]) - CELL_GAP;
 
   doc.font(bold ? FONT_BOLD : FONT_REGULAR);
+  const rowHeight = cells.reduce(
+    (tallest, cell, index) =>
+      Math.max(tallest, doc.heightOfString(cell, { width: columnWidth(index), lineGap: LINE_GAP })),
+    BODY_SIZE + LINE_GAP,
+  );
+
+  if (doc.y + rowHeight > doc.page.height - PAGE_MARGIN) {
+    doc.addPage();
+    doc.font(bold ? FONT_BOLD : FONT_REGULAR);
+  }
+
   const y = doc.y;
   let x = PAGE_MARGIN;
   cells.forEach((cell, index) => {
-    const width = widths[index] ?? widths[widths.length - 1];
-    doc.text(cell, x, y, {
-      width: width - 4,
-      height: lineHeight,
-      ellipsis: true,
-      lineBreak: false,
-    });
-    x += width;
+    doc.text(cell, x, y, { width: columnWidth(index), lineGap: LINE_GAP });
+    x += widths[index] ?? widths[widths.length - 1];
   });
-  doc.y = y + lineHeight;
+  doc.y = y + rowHeight;
   doc.x = PAGE_MARGIN;
 }
 
@@ -162,7 +175,14 @@ function questionSection(doc: Doc, report: RoundReport, contentWidth: number): v
   gridRow(doc, ['ข้อ', 'คำถาม', 'คะแนน', 'เต็ม'], widths, true);
 
   for (const dimension of report.dimensions) {
-    gridRow(doc, [`${dimension.dimensionName} (${TEXT.weight} ${dimension.weight})`], widths, true);
+    // The dimension name heads its block of questions, so it spans the table
+    // rather than being squeezed into the narrow "ข้อ" column.
+    gridRow(
+      doc,
+      [`${dimension.dimensionName} (${TEXT.weight} ${dimension.weight})`],
+      [contentWidth],
+      true,
+    );
     for (const question of dimension.questions) {
       gridRow(
         doc,
@@ -208,13 +228,15 @@ export function buildRoundReportPdf(report: RoundReport): Promise<Buffer> {
   if (report.notes) field(doc, TEXT.notes, report.notes);
 
   heading(doc, TEXT.dimensionSection);
+  // The last column holds "คะแนนถ่วงน้ำหนัก", which has no space to break on —
+  // it gets the width its header needs, the rest share what is left.
   const dimensionWidths = [
     contentWidth * 0.32,
+    contentWidth * 0.12,
+    contentWidth * 0.11,
     contentWidth * 0.13,
     contentWidth * 0.13,
-    contentWidth * 0.14,
-    contentWidth * 0.13,
-    contentWidth * 0.15,
+    contentWidth * 0.19,
   ];
   gridRow(
     doc,
@@ -283,25 +305,32 @@ export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> 
     return toBuffer(doc);
   }
 
+  // Thai has no spaces to break on, so a header wider than its column is split
+  // mid-word — the "ความครบถ้วน (%)" and "คะแนนถ่วงน้ำหนัก" columns are therefore
+  // sized to hold their header on one line, and the dimension columns (headed
+  // "มิติ N (w%)", which does have a space) take what is left.
   const fixedWidths = [
-    contentWidth * 0.08,
-    contentWidth * 0.16,
-    contentWidth * 0.08,
-    contentWidth * 0.07,
+    contentWidth * 0.075,
+    contentWidth * 0.15,
+    contentWidth * 0.075,
+    contentWidth * 0.123,
   ];
+  const weightedWidth = contentWidth * 0.123;
   const dimensionWidth =
-    (contentWidth - fixedWidths.reduce((sum, width) => sum + width, 0)) /
-    (report.dimensions.length + 1);
-  const widths = [...fixedWidths, ...report.dimensions.map(() => dimensionWidth), dimensionWidth];
+    (contentWidth - fixedWidths.reduce((sum, width) => sum + width, 0) - weightedWidth) /
+    report.dimensions.length;
+  const widths = [...fixedWidths, ...report.dimensions.map(() => dimensionWidth), weightedWidth];
 
   gridRow(
     doc,
     [
       TEXT.storeCode,
       TEXT.storeName,
-      TEXT.zone,
+      TEXT.overallLevel,
       TEXT.completion,
-      ...report.dimensions.map((dimension) => `${dimension.dimensionName} (${dimension.weight}%)`),
+      ...report.dimensions.map((dimension) =>
+        TEXT.dimensionShort(dimension.dimensionId, dimension.weight),
+      ),
       TEXT.weightedScore,
     ],
     widths,
@@ -314,7 +343,7 @@ export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> 
       [
         row.storeCode,
         row.storeName,
-        row.zone ?? TEXT.noData,
+        row.overallLevel,
         row.completionPct.toFixed(0),
         ...report.dimensions.map((dimension) =>
           (row.scoresByDimension[dimension.dimensionId] ?? 0).toFixed(1),
@@ -341,6 +370,22 @@ export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> 
     widths,
     true,
   );
+
+  // The score columns are headed "มิติ N" so the table fits the page — the full
+  // names have to be reachable from the same document.
+  heading(doc, TEXT.dimensionLegend);
+  const legendWidths = [contentWidth * 0.12, contentWidth * 0.6, contentWidth * 0.12];
+  for (const dimension of report.dimensions) {
+    gridRow(
+      doc,
+      [
+        TEXT.dimensionNumber(dimension.dimensionId),
+        dimension.dimensionName,
+        `${dimension.weight}%`,
+      ],
+      legendWidths,
+    );
+  }
 
   return toBuffer(doc);
 }

@@ -75,6 +75,16 @@ export function getZone(totalScore: number): string {
   return 'Model Zone';
 }
 
+// "ระดับรวม" on 03_สรุปคะแนน — a four-step Thai label over the same weighted
+// total getZone reads, but on its own cut points (50 / 65 / 80). The two scales
+// do not line up, so neither may be derived from the other.
+export function getOverallLevel(totalScore: number): string {
+  if (totalScore < 50) return 'เร่งแก้ไข';
+  if (totalScore < 65) return 'ต้องพัฒนา';
+  if (totalScore < 80) return 'ดี';
+  return 'ดีมาก';
+}
+
 export function detectRedFlags(scores: ScoredQuestion[]): RedFlagCandidate[] {
   const flags: RedFlagCandidate[] = [];
   const byQ = (questionNo: number): number =>

@@ -46,7 +46,9 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 - `GET /reports/rounds/:round/stores` (+ `/export`) is the **cross-store**
   report: one row per accessible store for a single round, mirroring
   `docs/…03_สรุปคะแนน.csv` — code, name, province, ความครบถ้วน, คะแนนดิบ,
-  คะแนนรวม %, คะแนนถ่วงน้ำหนัก, zone, red-flag count, มิติเร่งแก้ไข, and a
+  คะแนนรวม %, คะแนนถ่วงน้ำหนัก, red-flag count, `overallLevel` (ระดับรวม —
+  `getOverallLevel()`, cut points 50/65/80, a different scale from Zone, which
+  this report does **not** carry), มิติเร่งแก้ไข, and a
   `scoresByDimension` map keyed by dimension id, plus cohort averages. It is
   **ADMIN / SUPER_ADMIN only** (`isAdminRole`) — narrower than the rest of
   `/reports`, because it is the one report that puts one store's scores in front

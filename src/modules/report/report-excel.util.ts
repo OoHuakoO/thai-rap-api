@@ -44,7 +44,11 @@ const TEXT = {
   resolvedYes: 'แก้ไขแล้ว',
   resolvedNo: 'ยังไม่แก้ไข',
   criticalDimension: 'มิติเร่งแก้ไข',
+  overallLevel: 'ระดับรวม',
   average: 'ค่าเฉลี่ย',
+  dimensionLegend: 'คำอธิบายมิติ',
+  dimensionNumber: (dimensionId: number) => `มิติ ${dimensionId}`,
+  dimensionShort: (dimensionId: number, weight: number) => `มิติ ${dimensionId} (${weight}%)`,
   delta: 'เปลี่ยนแปลง',
   unresolvedFlags: 'สัญญาณเตือนที่ยังไม่แก้ไข',
   noData: '-',
@@ -201,8 +205,8 @@ export async function buildRoundMatrixWorkbook(report: RoundMatrixReport): Promi
     { width: 12 },
     { width: 14 },
     { width: 18 },
-    { width: 14 },
     { width: 10 },
+    { width: 14 },
     { width: 24 },
     ...report.dimensions.map(() => ({ width: 14 })),
   ];
@@ -216,10 +220,12 @@ export async function buildRoundMatrixWorkbook(report: RoundMatrixReport): Promi
     TEXT.rawScore,
     TEXT.rawScorePct,
     TEXT.weightedScore,
-    TEXT.zone,
     TEXT.redFlag,
+    TEXT.overallLevel,
     TEXT.criticalDimension,
-    ...report.dimensions.map((dimension) => `${dimension.dimensionName} (${dimension.weight}%)`),
+    ...report.dimensions.map((dimension) =>
+      TEXT.dimensionShort(dimension.dimensionId, dimension.weight),
+    ),
   ]);
   styleHeaderRow(sheet, headerRow);
 
@@ -232,9 +238,12 @@ export async function buildRoundMatrixWorkbook(report: RoundMatrixReport): Promi
       row.rawScore,
       row.rawScorePct,
       row.weightedScore ?? TEXT.noData,
-      row.zone ?? TEXT.noData,
       row.redFlagCount,
-      row.criticalDimensionName ?? TEXT.noData,
+      row.overallLevel,
+      // "มิติ N", as 03_สรุปคะแนน writes it — the full name is in the legend below.
+      row.criticalDimensionId === null
+        ? TEXT.noData
+        : TEXT.dimensionNumber(row.criticalDimensionId),
       ...report.dimensions.map((dimension) => row.scoresByDimension[dimension.dimensionId] ?? 0),
     ]);
   }
@@ -259,6 +268,20 @@ export async function buildRoundMatrixWorkbook(report: RoundMatrixReport): Promi
   const percentColumns = [4, 6, 7, ...report.dimensions.map((_, index) => 11 + index)];
   for (const column of percentColumns) {
     sheet.getColumn(column).numFmt = SCORE_FORMAT;
+  }
+
+  // The dimension columns are headed "มิติ N" to keep the sheet readable, so the
+  // full names have to appear somewhere — here, under the table.
+  sheet.addRow([]);
+  const legendHeaderRow = sheet.rowCount + 1;
+  sheet.addRow([TEXT.dimensionLegend, TEXT.dimension, TEXT.weight]);
+  styleHeaderRow(sheet, legendHeaderRow);
+  for (const dimension of report.dimensions) {
+    sheet.addRow([
+      TEXT.dimensionNumber(dimension.dimensionId),
+      dimension.dimensionName,
+      dimension.weight,
+    ]);
   }
 
   return Buffer.from(await workbook.xlsx.writeBuffer());

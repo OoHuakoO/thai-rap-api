@@ -3,6 +3,7 @@ import {
   computeDimensionScores,
   computeTotalScore,
   detectRedFlags,
+  getOverallLevel,
   getZone,
   type DimensionInfo,
   type ScoredQuestion,
@@ -87,6 +88,21 @@ describe('getZone', () => {
     [100, 'Model Zone'],
   ])('should classify %s as %s', (score, zone) => {
     expect(getZone(score)).toBe(zone);
+  });
+});
+
+describe('getOverallLevel', () => {
+  it.each([
+    [0, 'เร่งแก้ไข'],
+    [49.9, 'เร่งแก้ไข'],
+    [50, 'ต้องพัฒนา'],
+    [64.9, 'ต้องพัฒนา'],
+    [65, 'ดี'],
+    [79.9, 'ดี'],
+    [80, 'ดีมาก'],
+    [100, 'ดีมาก'],
+  ])('should label %s as %s', (score, level) => {
+    expect(getOverallLevel(score)).toBe(level);
   });
 });
 

@@ -283,7 +283,7 @@ describe('ReportService', () => {
         rawScorePct: 43.75,
         completionPct: 75,
         weightedScore: 62.5,
-        zone: 'Improve Zone',
+        overallLevel: 'ต้องพัฒนา',
         redFlagCount: 2,
         unresolvedRedFlagCount: 1,
         scoresByDimension: { 1: 75, 2: 12.5 },

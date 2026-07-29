@@ -13,6 +13,7 @@ import { DimensionService } from '@modules/assessment/dimension.service';
 import {
   computeDimensionScores,
   computeTotalScore,
+  getOverallLevel,
   getZone,
   type DimensionInfo,
 } from '@modules/assessment/assessment-scoring.util';
@@ -433,7 +434,7 @@ export class ReportService {
       rawScore,
       rawScorePct: percent(rawScore, scoring.maxScore),
       weightedScore: round2(weighted),
-      zone: getZone(weighted),
+      overallLevel: getOverallLevel(weighted),
       redFlagCount: row.redFlags.length,
       unresolvedRedFlagCount: row.redFlags.filter((flag) => !flag.resolved).length,
       criticalDimensionId: critical?.info.id ?? null,
