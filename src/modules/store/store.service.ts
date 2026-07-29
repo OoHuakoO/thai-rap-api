@@ -71,6 +71,16 @@ export class StoreService {
     return undefined;
   }
 
+  // The id list behind the same narrowing findAll() applies, for callers that
+  // aggregate across stores instead of listing them (the cross-store report).
+  // `null` means "not narrowed" — an empty array means the caller reaches no
+  // store at all, and the two must not collapse into one another.
+  async findAccessibleStoreIds(user: JwtPayload): Promise<string[] | null> {
+    const scope = this.listScope(user);
+    if (!scope) return null;
+    return this.storeRepo.findIdsByScope(scope);
+  }
+
   // Mirrors the web route guard for /stores, which only ADMIN and ENTREPRENEUR
   // can open — other staff roles never see this aggregate on the stores page.
   async getStats(user: JwtPayload): Promise<StoreStats> {

@@ -5,13 +5,20 @@ import { ForbiddenException, NotFoundException } from '@common/exceptions/app.ex
 import { ERROR_CODES } from '@constants/index';
 import { DimensionService } from '@modules/assessment/dimension.service';
 import { StoreService } from '@modules/store/store.service';
-import { ReportRepository, type RoundReportRow } from './report.repository';
+import {
+  ReportRepository,
+  type RoundMatrixRowData,
+  type RoundReportRow,
+} from './report.repository';
 import { RECENT_REPORT_LIMIT, ReportService } from './report.service';
 
 const admin: JwtPayload = { sub: 'admin-1', email: 'admin@example.com', role: Role.ADMIN };
 const owner: JwtPayload = { sub: 'owner-1', email: 'owner@example.com', role: Role.ENTREPRENEUR };
 const viewer: JwtPayload = { sub: 'viewer-1', email: 'viewer@example.com', role: Role.VIEWER };
 const judge: JwtPayload = { sub: 'judge-1', email: 'judge@example.com', role: Role.JUDGE };
+const superAdmin: JwtPayload = { sub: 'root-1', email: 'root@example.com', role: Role.SUPER_ADMIN };
+const assessor: JwtPayload = { sub: 'ass-1', email: 'assessor@example.com', role: Role.ASSESSOR };
+const mentor: JwtPayload = { sub: 'men-1', email: 'mentor@example.com', role: Role.MENTOR };
 
 const store = {
   id: 'store-1',
@@ -33,6 +40,13 @@ const dimensions = [
     maxTotal: 8,
   },
   { id: 2, name: 'การเงิน', nameEn: 'Financial', weight: 40, questionCount: 2, maxTotal: 8 },
+];
+
+const questions = [
+  { id: 1, dimensionId: 1, questionNo: 1, questionText: 'ล้างมือก่อนปรุง', maxScore: 4 },
+  { id: 2, dimensionId: 1, questionNo: 2, questionText: 'เก็บวัตถุดิบถูกอุณหภูมิ', maxScore: 4 },
+  { id: 3, dimensionId: 2, questionNo: 3, questionText: 'บันทึกรายรับรายจ่าย', maxScore: 4 },
+  { id: 4, dimensionId: 2, questionNo: 4, questionText: 'รู้ต้นทุนต่อจาน', maxScore: 4 },
 ];
 
 function roundRow(overrides: Partial<RoundReportRow> = {}): RoundReportRow {
@@ -77,6 +91,7 @@ describe('ReportService', () => {
           useValue: {
             findSubmittedRound: jest.fn().mockResolvedValue(null),
             findSubmittedRounds: jest.fn().mockResolvedValue([]),
+            findSubmittedByRound: jest.fn().mockResolvedValue([]),
             findRecentSubmitted: jest.fn().mockResolvedValue([]),
           },
         },
@@ -85,12 +100,16 @@ describe('ReportService', () => {
           useValue: {
             findAllDimensions: jest.fn().mockResolvedValue(dimensions),
             findDimensionInfos: jest.fn().mockResolvedValue(dimensions),
-            findAllQuestions: jest.fn().mockResolvedValue([]),
+            findAllQuestions: jest.fn().mockResolvedValue(questions),
+            findScoringContext: jest.fn().mockResolvedValue({ dimensions, questions }),
           },
         },
         {
           provide: StoreService,
-          useValue: { findAccessible: jest.fn().mockResolvedValue(store) },
+          useValue: {
+            findAccessible: jest.fn().mockResolvedValue(store),
+            findAccessibleStoreIds: jest.fn().mockResolvedValue(null),
+          },
         },
       ],
     }).compile();
@@ -110,11 +129,34 @@ describe('ReportService', () => {
       expect(result.totalScore).toBe(62.11);
       expect(result.zone).toBe('Improve Zone');
       // (4+2)/8 = 75%, (1+0)/8 = 12.5%
-      expect(result.dimensions).toEqual([
-        { dimensionId: 1, dimensionName: 'ความปลอดภัยอาหาร', weight: 60, scorePct: 75 },
-        { dimensionId: 2, dimensionName: 'การเงิน', weight: 40, scorePct: 12.5 },
+      expect(result.dimensions.map((d) => [d.dimensionId, d.scorePct, d.weightedScore])).toEqual([
+        [1, 75, 45],
+        [2, 12.5, 5],
       ]);
       expect(result.redFlags[0]).toMatchObject({ type: RedFlagType.FINANCIAL, resolved: false });
+    });
+
+    it('should report the raw score, its percentage and how complete the round is', async () => {
+      repository.findSubmittedRound.mockResolvedValue(roundRow());
+
+      const result = await service.getRoundReport('store-1', Round.T0, admin);
+
+      // 4 + 2 + 1 out of 4 questions worth 4 each; Q4 was left unanswered.
+      expect(result.rawScore).toBe(7);
+      expect(result.maxScore).toBe(16);
+      expect(result.rawScorePct).toBe(43.75);
+      expect(result.completionPct).toBe(75);
+    });
+
+    it('should list every question of a dimension, unanswered ones included', async () => {
+      repository.findSubmittedRound.mockResolvedValue(roundRow());
+
+      const result = await service.getRoundReport('store-1', Round.T0, admin);
+
+      expect(result.dimensions[1].questions).toEqual([
+        { questionNo: 3, questionText: 'บันทึกรายรับรายจ่าย', rawScore: 1, maxScore: 4 },
+        { questionNo: 4, questionText: 'รู้ต้นทุนต่อจาน', rawScore: null, maxScore: 4 },
+      ]);
     });
 
     it('should throw when the round has no submitted assessment', async () => {
@@ -209,6 +251,113 @@ describe('ReportService', () => {
     });
   });
 
+  describe('getRoundMatrixReport', () => {
+    function matrixRow(overrides: Partial<RoundMatrixRowData> = {}): RoundMatrixRowData {
+      return {
+        storeId: 'store-1',
+        round: Round.T0,
+        totalScore: 62.5,
+        submittedAt: new Date('2026-05-20T00:00:00.000Z'),
+        store: { code: 'RAP69-001', name: 'ครัวริมธาร', province: 'จันทบุรี' },
+        scores: [
+          { rawScore: 4, question: { dimensionId: 1 } },
+          { rawScore: 2, question: { dimensionId: 1 } },
+          { rawScore: 1, question: { dimensionId: 2 } },
+          { rawScore: null, question: { dimensionId: 2 } },
+        ],
+        redFlags: [{ resolved: false }, { resolved: true }],
+        ...overrides,
+      } as RoundMatrixRowData;
+    }
+
+    it('should give every store a row of dimension percentages', async () => {
+      repository.findSubmittedByRound.mockResolvedValue([matrixRow()]);
+
+      const result = await service.getRoundMatrixReport(Round.T0, admin);
+
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]).toMatchObject({
+        storeCode: 'RAP69-001',
+        province: 'จันทบุรี',
+        rawScore: 7,
+        rawScorePct: 43.75,
+        completionPct: 75,
+        weightedScore: 62.5,
+        zone: 'Improve Zone',
+        redFlagCount: 2,
+        unresolvedRedFlagCount: 1,
+        scoresByDimension: { 1: 75, 2: 12.5 },
+      });
+    });
+
+    it('should name the lowest dimension as the one to fix first', async () => {
+      repository.findSubmittedByRound.mockResolvedValue([matrixRow()]);
+
+      const result = await service.getRoundMatrixReport(Round.T0, admin);
+
+      expect(result.rows[0].criticalDimensionName).toBe('การเงิน');
+    });
+
+    it('should average each dimension across the cohort', async () => {
+      repository.findSubmittedByRound.mockResolvedValue([
+        matrixRow(),
+        matrixRow({
+          storeId: 'store-2',
+          totalScore: 30,
+          store: { code: 'RAP69-002', name: 'ร้านสอง', province: 'ระยอง' },
+          scores: [
+            { rawScore: 2, question: { dimensionId: 1 } },
+            { rawScore: 0, question: { dimensionId: 1 } },
+            { rawScore: 3, question: { dimensionId: 2 } },
+            { rawScore: 1, question: { dimensionId: 2 } },
+          ],
+        } as Partial<RoundMatrixRowData>),
+      ]);
+
+      const result = await service.getRoundMatrixReport(Round.T0, admin);
+
+      // dimension 1: (75 + 25) / 2, dimension 2: (12.5 + 50) / 2
+      expect(result.averageByDimension).toEqual({ 1: 50, 2: 31.25 });
+      expect(result.averageWeightedScore).toBe(46.25);
+    });
+
+    // This is the one report that shows a store its neighbours' scores, so it
+    // is narrower than the rest of /reports: admin roles only. Reading their own
+    // round report still works for every role in ASSESSMENT_READ_ROLES.
+    it.each([
+      ['ENTREPRENEUR', owner],
+      ['ASSESSOR', assessor],
+      ['MENTOR', mentor],
+      ['VIEWER', viewer],
+      ['JUDGE', judge],
+    ])('should throw ForbiddenException for %s', async (_l, user) => {
+      await expect(service.getRoundMatrixReport(Round.T0, user)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(repository.findSubmittedByRound).not.toHaveBeenCalled();
+    });
+
+    it('should let SUPER_ADMIN read it too', async () => {
+      repository.findSubmittedByRound.mockResolvedValue([matrixRow()]);
+
+      const result = await service.getRoundMatrixReport(Round.T0, superAdmin);
+
+      expect(result.rows).toHaveLength(1);
+    });
+
+    // The gate above is admin-only today, so the scope resolves to null. The
+    // narrowing still has to hold: an empty scope reaches no store, not all.
+    it('should return no row when the caller reaches no store at all', async () => {
+      storeService.findAccessibleStoreIds.mockResolvedValue([]);
+
+      const result = await service.getRoundMatrixReport(Round.T0, admin);
+
+      expect(result.rows).toEqual([]);
+      expect(result.averageWeightedScore).toBeNull();
+      expect(repository.findSubmittedByRound).not.toHaveBeenCalled();
+    });
+  });
+
   describe('exports', () => {
     it('should build an xlsx (zip) buffer for a round', async () => {
       repository.findSubmittedRound.mockResolvedValue(roundRow());
@@ -240,6 +389,18 @@ describe('ReportService', () => {
       const file = await service.exportOverviewReport('store-1', 'xlsx', admin);
 
       expect(file.subarray(0, 2).toString()).toBe('PK');
+    });
+
+    it('should build an xlsx buffer for the all-stores matrix', async () => {
+      const file = await service.exportRoundMatrixReport(Round.T0, 'xlsx', admin);
+
+      expect(file.subarray(0, 2).toString()).toBe('PK');
+    });
+
+    it('should build a pdf buffer for the all-stores matrix', async () => {
+      const file = await service.exportRoundMatrixReport(Round.T0, 'pdf', admin);
+
+      expect(file.subarray(0, 4).toString()).toBe('%PDF');
     });
   });
 

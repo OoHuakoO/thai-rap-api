@@ -48,8 +48,15 @@ const STORE_SELECT = {
 export class StoreRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private buildWhere(query: QueryStoreDto, scope?: StoreListScope): Prisma.StoreWhereInput {
+  private scopeWhere(scope?: StoreListScope): Prisma.StoreWhereInput {
     const where: Prisma.StoreWhereInput = {};
+    if (scope?.ownerId) where.ownerId = scope.ownerId;
+    if (scope?.assignedToId) where.assignedUsers = { some: { id: scope.assignedToId } };
+    return where;
+  }
+
+  private buildWhere(query: QueryStoreDto, scope?: StoreListScope): Prisma.StoreWhereInput {
+    const where: Prisma.StoreWhereInput = this.scopeWhere(scope);
     if (query.search) {
       where.OR = [
         { code: { contains: query.search } },
@@ -61,9 +68,15 @@ export class StoreRepository {
     if (query.province) where.province = query.province;
     if (query.storeType) where.storeType = query.storeType;
     if (query.status) where.status = query.status;
-    if (scope?.ownerId) where.ownerId = scope.ownerId;
-    if (scope?.assignedToId) where.assignedUsers = { some: { id: scope.assignedToId } };
     return where;
+  }
+
+  async findIdsByScope(scope: StoreListScope): Promise<string[]> {
+    const rows = await this.prisma.store.findMany({
+      where: this.scopeWhere(scope),
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
   }
 
   findAll(

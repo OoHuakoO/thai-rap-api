@@ -45,6 +45,31 @@ export class ReportController {
     sendFile(res, file, format, `assessment-report-${round}`);
   }
 
+  @Get('rounds/:round/stores')
+  @ApiOperation({
+    summary: 'Dimension scores for every accessible store in one round',
+  })
+  getRoundMatrixReport(
+    @Param('round', new ParseEnumPipe(Round)) round: Round,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.reportService.getRoundMatrixReport(round, user);
+  }
+
+  @Get('rounds/:round/stores/export')
+  @ApiOperation({ summary: 'Download the all-stores dimension matrix as Excel or PDF' })
+  @ApiProduces(CONTENT_TYPE.xlsx, CONTENT_TYPE.pdf)
+  async exportRoundMatrixReport(
+    @Param('round', new ParseEnumPipe(Round)) round: Round,
+    @Query() query: ExportReportDto,
+    @CurrentUser() user: JwtPayload,
+    @Res() res: Response,
+  ) {
+    const format = query.format ?? DEFAULT_REPORT_FORMAT;
+    const file = await this.reportService.exportRoundMatrixReport(round, format, user);
+    sendFile(res, file, format, `assessment-report-stores-${round}`);
+  }
+
   @Get('stores/:storeId/overview')
   @ApiOperation({ summary: 'Assessment report across every round for one store' })
   getOverviewReport(@Param('storeId') storeId: string, @CurrentUser() user: JwtPayload) {

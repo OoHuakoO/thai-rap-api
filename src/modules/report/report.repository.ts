@@ -16,13 +16,29 @@ const roundReportSelect = {
   scores: {
     select: {
       rawScore: true,
-      question: { select: { questionNo: true, dimensionId: true } },
+      question: {
+        select: { questionNo: true, dimensionId: true, questionText: true, maxScore: true },
+      },
     },
   },
   redFlags: { select: { type: true, severity: true, triggerQuestions: true, resolved: true } },
 } satisfies Prisma.AssessmentSelect;
 
 export type RoundReportRow = Prisma.AssessmentGetPayload<{ select: typeof roundReportSelect }>;
+
+const roundMatrixSelect = {
+  storeId: true,
+  round: true,
+  totalScore: true,
+  submittedAt: true,
+  store: { select: { code: true, name: true, province: true } },
+  scores: {
+    select: { rawScore: true, question: { select: { dimensionId: true } } },
+  },
+  redFlags: { select: { resolved: true } },
+} satisfies Prisma.AssessmentSelect;
+
+export type RoundMatrixRowData = Prisma.AssessmentGetPayload<{ select: typeof roundMatrixSelect }>;
 
 const availableReportSelect = {
   storeId: true,
@@ -51,6 +67,21 @@ export class ReportRepository {
       where: { storeId, status: { in: SUBMITTED_STATUSES } },
       orderBy: { round: 'asc' },
       select: roundReportSelect,
+    });
+  }
+
+  // storeIds is the caller's accessible set, already resolved by StoreService —
+  // undefined means "no narrowing", which is not the same as an empty array
+  // (a caller with access to nothing must match no store, not every store).
+  findSubmittedByRound(round: Round, storeIds?: string[]): Promise<RoundMatrixRowData[]> {
+    return this.prisma.assessment.findMany({
+      where: {
+        round,
+        status: { in: SUBMITTED_STATUSES },
+        ...(storeIds ? { storeId: { in: storeIds } } : {}),
+      },
+      orderBy: { store: { code: 'asc' } },
+      select: roundMatrixSelect,
     });
   }
 

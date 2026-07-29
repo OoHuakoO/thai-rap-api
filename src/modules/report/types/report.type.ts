@@ -15,6 +15,27 @@ export interface ReportDimensionScore {
   scorePct: number;
 }
 
+/** One of the 50 questions as it appears on the per-question report. */
+export interface ReportQuestionScore {
+  questionNo: number;
+  questionText: string;
+  /** null when the assessor left the question unanswered. */
+  rawScore: number | null;
+  maxScore: number;
+}
+
+/**
+ * A dimension with the arithmetic behind its percentage spelled out, so the
+ * report can show how the weighted total was reached rather than only the
+ * result: rawScore / maxScore → scorePct, then scorePct × weight / 100.
+ */
+export interface ReportDimensionDetail extends ReportDimensionScore {
+  rawScore: number;
+  maxScore: number;
+  weightedScore: number;
+  questions: ReportQuestionScore[];
+}
+
 export interface ReportRedFlag {
   type: RedFlagType;
   severity: Severity;
@@ -26,12 +47,21 @@ export interface ReportRedFlag {
 export interface RoundReport {
   store: ReportStore;
   round: Round;
+  /** The weighted total — คะแนนถ่วงน้ำหนัก on the Excel template. */
   totalScore: number | null;
   zone: string | null;
   assessorName: string;
   submittedAt: Date | null;
   notes: string | null;
-  dimensions: ReportDimensionScore[];
+  /** Σ raw score across every answered question — คะแนนดิบ. */
+  rawScore: number;
+  /** Σ Question.maxScore across all 50 questions. */
+  maxScore: number;
+  /** rawScore / maxScore — คะแนนรวม %, unweighted. */
+  rawScorePct: number;
+  /** Answered questions / total questions — ความครบถ้วน. */
+  completionPct: number;
+  dimensions: ReportDimensionDetail[];
   redFlags: ReportRedFlag[];
 }
 
@@ -56,6 +86,46 @@ export interface OverviewReport {
     scoresByRound: Partial<Record<Round, number>>;
   }[];
   unresolvedRedFlagCount: number;
+}
+
+export interface RoundMatrixDimension {
+  dimensionId: number;
+  dimensionName: string;
+  weight: number;
+}
+
+/** One store's row on the cross-store matrix — a row of 03_สรุปคะแนน. */
+export interface RoundMatrixRow {
+  storeId: string;
+  storeCode: string;
+  storeName: string;
+  province: string;
+  completionPct: number;
+  rawScore: number;
+  rawScorePct: number;
+  weightedScore: number | null;
+  zone: string | null;
+  redFlagCount: number;
+  unresolvedRedFlagCount: number;
+  /** The lowest-scoring dimension — มิติเร่งแก้ไข; null when nothing is scored. */
+  criticalDimensionId: number | null;
+  criticalDimensionName: string | null;
+  /** Percentage per dimension, keyed by dimension id. */
+  scoresByDimension: Record<number, number>;
+}
+
+/**
+ * Every store's dimension scores for one round side by side:
+ * "ผลค่าคะแนนแต่ละมิติของทุกร้าน ของแต่ละ T". Stores the caller may not read are
+ * absent, so an ENTREPRENEUR sees a one-row matrix rather than a 403.
+ */
+export interface RoundMatrixReport {
+  round: Round;
+  dimensions: RoundMatrixDimension[];
+  rows: RoundMatrixRow[];
+  /** Cohort mean per dimension, over the rows above. */
+  averageByDimension: Record<number, number>;
+  averageWeightedScore: number | null;
 }
 
 /**

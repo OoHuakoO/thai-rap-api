@@ -43,6 +43,35 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 
 ## Known Sync Points (as of 2026-07)
 
+- `GET /reports/rounds/:round/stores` (+ `/export`) is the **cross-store**
+  report: one row per accessible store for a single round, mirroring
+  `docs/…03_สรุปคะแนน.csv` — code, name, province, ความครบถ้วน, คะแนนดิบ,
+  คะแนนรวม %, คะแนนถ่วงน้ำหนัก, zone, red-flag count, มิติเร่งแก้ไข, and a
+  `scoresByDimension` map keyed by dimension id, plus cohort averages. It is
+  **ADMIN / SUPER_ADMIN only** (`isAdminRole`) — narrower than the rest of
+  `/reports`, because it is the one report that puts one store's scores in front
+  of another store's people; ENTREPRENEUR / ASSESSOR / MENTOR / ME_TEAM get 403
+  `PERM_001` even though they read their own round report fine. The
+  `StoreService.findAccessibleStoreIds()` narrowing stays in the service (it
+  resolves to `null` for admins) so the query is still scoped if that gate ever
+  widens — an empty scope must query an empty id list, never `undefined`. Web:
+  `useRoundMatrix`, `RoundMatrixPanel`, gated in the UI by `REPORT_DETAIL_ROLES`;
+  the **MSW handler mirrors the 403** (`mocks/handlers/report.handlers.test.ts`),
+  unlike the other report handlers, which stay unscoped.
+- `GET /reports/stores/:storeId/rounds/:round` gained the per-question
+  breakdown, mirroring `docs/…02_ประเมิน50ร้าน.csv`: `rawScore`, `maxScore`,
+  `rawScorePct`, `completionPct` on the report, and `rawScore` / `maxScore` /
+  `weightedScore` / `questions[]` on every entry of `dimensions`. Questions come
+  from the question master, so an **unanswered** question is present with
+  `rawScore: null` rather than missing. Additive — an older client keeps working
+  — but the web `RoundReport` type and `mocks/fixtures/report.fixtures.ts`
+  already require the new fields. Both exports carry it too: the xlsx grows a
+  คะแนนรายข้อ sheet, the PDF a คะแนนรายข้อ section. The API serves these fields to
+  every role in `ASSESSMENT_READ_ROLES` — it is the store's own data, which that
+  role already reads — but the **web renders them for admins only**
+  (`REPORT_DETAIL_ROLES`); other roles keep the three-column dimension table the
+  panel has always shown. That split is deliberate: a UI decision, not a
+  security boundary, so don't "fix" it by narrowing the endpoint.
 - `GET /dashboard/reports-status` is **derived, not stored** — there is no
   `Report` table. `ReportService.listAvailableReports()` reads the submitted
   rounds the caller may see and emits two report kinds per store (one per round,
@@ -112,7 +141,8 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   runs through `StoreService.findAccessible()`, an assessor gets that same 403
   from `/assessments*`, `/reports/*` (exports included) and `/analytics/*` for a
   store it was not assigned — it works only inside its own list. Every other
-  role is unaffected. MSW mocks are not role-aware.
+  role is unaffected. The MSW **store** handlers mirror this narrowing (see
+  below); the assessment/report/analytics handlers do not.
 - `GET /stores` is **ownership-scoped for ENTREPRENEUR** — it lists only the
   stores whose `ownerId` is the caller, and `GET /stores/:id` 403s `PERM_001`
   on any other store ("ผู้ประกอบการจะไม่สามารถเห็นข้อมูลของร้านอื่น", แบบ 50 ข้อ §3.2).
@@ -122,10 +152,19 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   `findOne()` and `findAccessible()` therefore agree for this role.
   The web still gates the row actions in
   `features/store/components/store-list.tsx` on `store.ownerId` as a second
-  check, which is why `ownerId` stays part of the web `Store` type. The MSW
-  store handlers are not ownership-aware — in mock mode an entrepreneur still
-  sees every store. `GET /stores/stats` stays project-wide for every role that
+  check, which is why `ownerId` stays part of the web `Store` type.
+  `GET /stores/stats` stays project-wide for every role that
   may call it: it is an aggregate over the whole programme, not a store list.
+- **The MSW store handlers reproduce all of the above** — they read the caller
+  from the mock bearer token (`getMockUserId`) and narrow the list, 403 a
+  single store outside the caller's scope, gate `/stores/stats` on the same
+  roles the API does, and strip a VIEWER's payload down to the public fields.
+  Ownership comes off `userDb.ownedStoreIds` (what the `/users` dialog writes),
+  not off the store fixture, except for a store created through the mock
+  `POST /stores`, which stamps its own `ownerId`. Locked down by
+  `mocks/handlers/store.handlers.test.ts`. The dashboard, assessment, report
+  and analytics handlers are still **not** scoped — in mock mode every role
+  sees the full fixture set there.
 - **`GET /stores` and `GET /stores/:id` return a narrowed object** —
   `PublicStoreResult` (id, ownerId, name, province, storeType, socialLinks,
   goals, menuPhotos, coverUrl, storePhotos, status) instead of `StoreResult` —
@@ -136,8 +175,8 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   The field list mirrors `PUBLIC_STORE_FIELDS` in the web's
   `constants/permissions.ts`; the two must change together. In-process callers
   that need the full record use `StoreService.findAccessible()`, never
-  `findOne()`. The MSW store handlers are not role-aware — in mock mode every
-  role still sees every field.
+  `findOne()`. The MSW store handlers narrow a VIEWER the same way
+  (`toPublicStore`), so the client-side guards are exercised in mock mode too.
 - `GET /news` and `GET /news/:id` answer **any signed-in role** — neither takes a
   user to narrow on. `POST`/`PATCH`/`DELETE` stay ADMIN / SUPER_ADMIN
   (403 `PERM_001` otherwise). The web mirrors this: `ROUTES.NEWS` carries no

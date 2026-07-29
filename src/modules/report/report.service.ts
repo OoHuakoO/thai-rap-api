@@ -1,27 +1,56 @@
 import { Injectable } from '@nestjs/common';
+import type { Question } from '@prisma/client';
 import { Role, Round } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { ForbiddenException, NotFoundException } from '@common/exceptions/app.exception';
-import { ERROR_CODES, canReadAssessment, STORE_UNSPECIFIED_LABEL } from '@constants/index';
+import {
+  ERROR_CODES,
+  canReadAssessment,
+  isAdminRole,
+  STORE_UNSPECIFIED_LABEL,
+} from '@constants/index';
 import { DimensionService } from '@modules/assessment/dimension.service';
 import {
   computeDimensionScores,
+  computeTotalScore,
   getZone,
   type DimensionInfo,
 } from '@modules/assessment/assessment-scoring.util';
 import { StoreService } from '@modules/store/store.service';
 import { REPORT_FORMATS, type ReportFormat } from './dto/report-format.dto';
-import { buildOverviewReportWorkbook, buildRoundReportWorkbook } from './report-excel.util';
-import { buildOverviewReportPdf, buildRoundReportPdf } from './report-pdf.util';
-import { ReportRepository, type RoundReportRow } from './report.repository';
+import {
+  buildOverviewReportWorkbook,
+  buildRoundMatrixWorkbook,
+  buildRoundReportWorkbook,
+} from './report-excel.util';
+import {
+  buildOverviewReportPdf,
+  buildRoundMatrixPdf,
+  buildRoundReportPdf,
+} from './report-pdf.util';
+import {
+  ReportRepository,
+  type RoundMatrixRowData,
+  type RoundReportRow,
+} from './report.repository';
 import type {
   AvailableReport,
   OverviewReport,
   OverviewRoundSummary,
+  ReportDimensionDetail,
   ReportDimensionScore,
   ReportStore,
+  RoundMatrixReport,
+  RoundMatrixRow,
   RoundReport,
 } from './types/report.type';
+
+interface ScoringContext {
+  dimensions: { info: DimensionInfo; name: string }[];
+  questions: Question[];
+  /** Σ Question.maxScore across every question — the 200-point denominator. */
+  maxScore: number;
+}
 
 export const REPORT_ROUNDS: Round[] = [Round.T0, Round.T1, Round.T2, Round.T3];
 
@@ -40,6 +69,38 @@ const REPORT_NAME = {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function percent(part: number, whole: number): number {
+  return whole === 0 ? 0 : round2((part / whole) * 100);
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return round2(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function averageByDimension(
+  rows: RoundMatrixRow[],
+  scoring: ScoringContext,
+): Record<number, number> {
+  const result: Record<number, number> = {};
+  for (const dimension of scoring.dimensions) {
+    const mean = average(rows.map((row) => row.scoresByDimension[dimension.info.id] ?? 0));
+    if (mean !== null) result[dimension.info.id] = mean;
+  }
+  return result;
+}
+
+function toScoredQuestions(row: {
+  scores: { rawScore: number | null; question: { dimensionId: number } }[];
+}): { dimensionId: number; rawScore: number }[] {
+  return row.scores
+    .filter((score) => score.rawScore !== null)
+    .map((score) => ({
+      dimensionId: score.question.dimensionId,
+      rawScore: score.rawScore as number,
+    }));
 }
 
 @Injectable()
@@ -64,7 +125,10 @@ export class ReportService {
       );
     }
 
-    const dimensions = await this.loadDimensions();
+    const scoring = await this.loadScoring();
+    const details = this.toDimensionDetails(row, scoring);
+    const rawScore = details.reduce((sum, detail) => sum + detail.rawScore, 0);
+    const answered = row.scores.filter((score) => score.rawScore !== null).length;
 
     return {
       store,
@@ -74,7 +138,11 @@ export class ReportService {
       assessorName: row.assessor.name,
       submittedAt: row.submittedAt,
       notes: row.notes,
-      dimensions: this.toDimensionScores(row, dimensions),
+      rawScore,
+      maxScore: scoring.maxScore,
+      rawScorePct: percent(rawScore, scoring.maxScore),
+      completionPct: percent(answered, scoring.questions.length),
+      dimensions: details,
       redFlags: row.redFlags.map((flag) => ({
         type: flag.type,
         severity: flag.severity,
@@ -87,10 +155,11 @@ export class ReportService {
   async getOverviewReport(storeId: string, user: JwtPayload): Promise<OverviewReport> {
     const store = await this.loadStore(storeId, user);
 
-    const [rows, dimensions] = await Promise.all([
+    const [rows, scoring] = await Promise.all([
       this.reportRepo.findSubmittedRounds(storeId),
-      this.loadDimensions(),
+      this.loadScoring(),
     ]);
+    const dimensions = scoring.dimensions;
 
     const byRound = new Map(rows.map((row) => [row.round, row]));
 
@@ -135,6 +204,57 @@ export class ReportService {
         0,
       ),
     };
+  }
+
+  // Cross-store, one round: "ผลค่าคะแนนแต่ละมิติของทุกร้าน ของแต่ละ T". This is the
+  // only report that puts one store's scores in front of another store's
+  // people, so it is ADMIN / SUPER_ADMIN only — narrower than the rest of
+  // /reports, which answers all of ASSESSMENT_READ_ROLES.
+  async getRoundMatrixReport(round: Round, user: JwtPayload): Promise<RoundMatrixReport> {
+    if (!isAdminRole(user.role)) {
+      throw new ForbiddenException(
+        ERROR_CODES.PERM.FORBIDDEN,
+        'ไม่มีสิทธิ์ดูรายงานคะแนนรายมิติของทุกร้าน',
+      );
+    }
+
+    const [storeIds, scoring] = await Promise.all([
+      this.storeService.findAccessibleStoreIds(user),
+      this.loadScoring(),
+    ]);
+
+    // Admin roles are unscoped today, so this resolves to null. It stays because
+    // it is what keeps the query narrowed if the gate above ever widens — an
+    // empty scope must reach no store, while `undefined` reaches every one.
+    const data =
+      storeIds !== null && storeIds.length === 0
+        ? []
+        : await this.reportRepo.findSubmittedByRound(round, storeIds ?? undefined);
+
+    const rows = data.map((row) => this.toMatrixRow(row, scoring));
+
+    return {
+      round,
+      dimensions: scoring.dimensions.map((dimension) => ({
+        dimensionId: dimension.info.id,
+        dimensionName: dimension.name,
+        weight: dimension.info.weight,
+      })),
+      rows,
+      averageByDimension: averageByDimension(rows, scoring),
+      averageWeightedScore: average(
+        rows.map((row) => row.weightedScore).filter((score): score is number => score !== null),
+      ),
+    };
+  }
+
+  async exportRoundMatrixReport(
+    round: Round,
+    format: ReportFormat,
+    user: JwtPayload,
+  ): Promise<Buffer> {
+    const report = await this.getRoundMatrixReport(round, user);
+    return format === 'pdf' ? buildRoundMatrixPdf(report) : buildRoundMatrixWorkbook(report);
   }
 
   async exportRoundReport(
@@ -225,28 +345,109 @@ export class ReportService {
     };
   }
 
-  private async loadDimensions(): Promise<{ info: DimensionInfo; name: string }[]> {
-    const dimensions = await this.dimensionService.findDimensionInfos();
+  private async loadScoring(): Promise<ScoringContext> {
+    const { dimensions, questions } = await this.dimensionService.findScoringContext();
 
-    return dimensions.map((dimension) => ({
-      name: dimension.name,
-      info: { id: dimension.id, weight: dimension.weight, maxTotal: dimension.maxTotal },
-    }));
+    return {
+      dimensions: dimensions.map((dimension) => ({
+        name: dimension.name,
+        info: { id: dimension.id, weight: dimension.weight, maxTotal: dimension.maxTotal },
+      })),
+      questions,
+      maxScore: questions.reduce((sum, question) => sum + question.maxScore, 0),
+    };
+  }
+
+  // The per-question view: every question the master defines, not only the ones
+  // the assessor answered, so an unanswered question shows as a gap rather than
+  // disappearing from the report.
+  private toDimensionDetails(
+    row: RoundReportRow,
+    scoring: ScoringContext,
+  ): ReportDimensionDetail[] {
+    const rawByQuestionNo = new Map(
+      row.scores.map((score) => [score.question.questionNo, score.rawScore]),
+    );
+    const percentages = computeDimensionScores(
+      toScoredQuestions(row),
+      scoring.dimensions.map((dimension) => dimension.info),
+    );
+
+    return scoring.dimensions.map((dimension) => {
+      const questions = scoring.questions
+        .filter((question) => question.dimensionId === dimension.info.id)
+        .sort((a, b) => a.questionNo - b.questionNo)
+        .map((question) => ({
+          questionNo: question.questionNo,
+          questionText: question.questionText,
+          rawScore: rawByQuestionNo.get(question.questionNo) ?? null,
+          maxScore: question.maxScore,
+        }));
+
+      const scorePct = round2(percentages.get(dimension.info.id) ?? 0);
+
+      return {
+        dimensionId: dimension.info.id,
+        dimensionName: dimension.name,
+        weight: dimension.info.weight,
+        scorePct,
+        rawScore: questions.reduce((sum, question) => sum + (question.rawScore ?? 0), 0),
+        maxScore: dimension.info.maxTotal,
+        weightedScore: round2((scorePct * dimension.info.weight) / 100),
+        questions,
+      };
+    });
+  }
+
+  private toMatrixRow(row: RoundMatrixRowData, scoring: ScoringContext): RoundMatrixRow {
+    const infos = scoring.dimensions.map((dimension) => dimension.info);
+    const scored = toScoredQuestions(row);
+    const percentages = computeDimensionScores(scored, infos);
+
+    const rawScore = scored.reduce((sum, score) => sum + score.rawScore, 0);
+    const weighted =
+      row.totalScore === null ? computeTotalScore(percentages, infos) : row.totalScore;
+
+    const scoresByDimension: Record<number, number> = {};
+    for (const dimension of scoring.dimensions) {
+      scoresByDimension[dimension.info.id] = round2(percentages.get(dimension.info.id) ?? 0);
+    }
+
+    // "มิติเร่งแก้ไข" is only meaningful once something was scored — an untouched
+    // round would otherwise always name dimension 1 at a flat 0%.
+    const critical =
+      scored.length === 0
+        ? null
+        : scoring.dimensions.reduce((lowest, dimension) =>
+            scoresByDimension[dimension.info.id] < scoresByDimension[lowest.info.id]
+              ? dimension
+              : lowest,
+          );
+
+    return {
+      storeId: row.storeId,
+      storeCode: row.store.code,
+      storeName: row.store.name,
+      province: row.store.province ?? STORE_UNSPECIFIED_LABEL,
+      completionPct: percent(scored.length, scoring.questions.length),
+      rawScore,
+      rawScorePct: percent(rawScore, scoring.maxScore),
+      weightedScore: round2(weighted),
+      zone: getZone(weighted),
+      redFlagCount: row.redFlags.length,
+      unresolvedRedFlagCount: row.redFlags.filter((flag) => !flag.resolved).length,
+      criticalDimensionId: critical?.info.id ?? null,
+      criticalDimensionName: critical?.name ?? null,
+      scoresByDimension,
+    };
   }
 
   private toDimensionScores(
     row: RoundReportRow,
     dimensions: { info: DimensionInfo; name: string }[],
   ): ReportDimensionScore[] {
-    const scored = row.scores
-      .filter((score) => score.rawScore !== null)
-      .map((score) => ({
-        dimensionId: score.question.dimensionId,
-        rawScore: score.rawScore as number,
-      }));
-
     const byDimension = computeDimensionScores(
-      scored,
+      toScoredQuestions(row),
       dimensions.map((d) => d.info),
     );
 
