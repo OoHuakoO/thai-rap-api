@@ -171,6 +171,7 @@ export class StoreService {
   async remove(id: string, user: JwtPayload): Promise<void> {
     const store = await this.getStoreOrThrow(id);
     this.assertCanManage(user, store);
+    await this.assertDeletable(id, store.documents);
     await this.storeRepo.remove(id);
     await deleteLocalDir(`stores/${id}`);
   }
@@ -344,6 +345,25 @@ export class StoreService {
       throw new ConflictException(
         ERROR_CODES.STORE.DUPLICATE_CODE,
         `รหัสร้าน "${code}" ถูกใช้ไปแล้ว`,
+      );
+    }
+  }
+
+  // Neither Assessment nor StoreDocument cascades on delete, so prisma.store.delete
+  // fails on the FK constraint and surfaces as an opaque DB_003. Naming the blocker
+  // here is the difference between "ข้อมูลอ้างอิงไม่ถูกต้อง" and an actionable message.
+  private async assertDeletable(id: string, documents: StoreDocument[]): Promise<void> {
+    const assessmentCount = await this.storeRepo.countAssessments(id);
+    if (assessmentCount > 0) {
+      throw new ConflictException(
+        ERROR_CODES.STORE.IN_USE,
+        `ไม่สามารถลบร้านนี้ได้ เพราะมีข้อมูลการประเมินอยู่ ${assessmentCount} รายการ`,
+      );
+    }
+    if (documents.length > 0) {
+      throw new ConflictException(
+        ERROR_CODES.STORE.IN_USE,
+        `ไม่สามารถลบร้านนี้ได้ เพราะมีเอกสารแนบอยู่ ${documents.length} รายการ กรุณาลบเอกสารก่อน`,
       );
     }
   }

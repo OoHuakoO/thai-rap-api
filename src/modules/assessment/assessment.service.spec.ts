@@ -18,7 +18,7 @@ import {
 } from '@common/exceptions/app.exception';
 import { ERROR_CODES } from '@constants/index';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
-import { saveLocalFile, deleteLocalFile, deleteLocalDir } from '@shared/file-storage.util';
+import { saveLocalFile, deleteLocalFile } from '@shared/file-storage.util';
 import { StoreService } from '@modules/store/store.service';
 import type { StoreResult } from '@modules/store/types/store-result.type';
 import { AssessmentService } from './assessment.service';
@@ -31,17 +31,14 @@ import {
 import { DimensionService } from './dimension.service';
 import type { CreateAssessmentDto } from './dto/create-assessment.dto';
 import type { UpdateScoreDto } from './dto/update-score.dto';
-import type { BulkScoreDto } from './dto/bulk-score.dto';
 
 jest.mock('@shared/file-storage.util', () => ({
   saveLocalFile: jest.fn(),
   deleteLocalFile: jest.fn(),
-  deleteLocalDir: jest.fn(),
 }));
 
 const mockedSaveLocalFile = saveLocalFile as jest.MockedFunction<typeof saveLocalFile>;
 const mockedDeleteLocalFile = deleteLocalFile as jest.MockedFunction<typeof deleteLocalFile>;
-const mockedDeleteLocalDir = deleteLocalDir as jest.MockedFunction<typeof deleteLocalDir>;
 
 const admin: JwtPayload = { sub: 'admin-1', email: 'admin@example.com', role: Role.ADMIN };
 const entrepreneur: JwtPayload = {
@@ -213,14 +210,12 @@ describe('AssessmentService', () => {
             sumRawScoreByQuestion: jest.fn().mockResolvedValue([]),
             findDetailById: jest.fn(),
             findStatusById: jest.fn(),
+            isStoreAssignedTo: jest.fn().mockResolvedValue(true),
             create: jest.fn(),
-            remove: jest.fn(),
             updateNotes: jest.fn(),
             reassignAssessor: jest.fn(),
             markInProgress: jest.fn(),
             upsertScore: jest.fn(),
-            bulkUpsertScores: jest.fn(),
-            countScored: jest.fn(),
             findScore: jest.fn(),
             createEvidence: jest.fn(),
             findEvidenceByScoreId: jest.fn().mockResolvedValue([]),
@@ -546,12 +541,33 @@ describe('AssessmentService', () => {
       expect(repo.upsertScore).not.toHaveBeenCalled();
     });
 
-    it('should let an ASSESSOR score', async () => {
+    it('should let an ASSESSOR score a store assigned to them', async () => {
       repo.findStatusById.mockResolvedValue(mockStatusRow);
       dimensionService.findQuestionById.mockResolvedValue(mockQuestions[0]);
       repo.upsertScore.mockResolvedValue(mockScoreRow);
 
       await expect(service.updateScore('assessment-1', 1, dto, assessor)).resolves.toBeDefined();
+    });
+
+    it('should throw ForbiddenException for an ASSESSOR the store is not assigned to', async () => {
+      repo.findStatusById.mockResolvedValue(mockStatusRow);
+      repo.isStoreAssignedTo.mockResolvedValue(false);
+
+      await expect(service.updateScore('assessment-1', 1, dto, assessor)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(repo.upsertScore).not.toHaveBeenCalled();
+    });
+
+    // Admin roles stand in for an assessor before anyone is assigned, so the
+    // assignment list must not gate them.
+    it('should let an ADMIN score a store assigned to nobody', async () => {
+      repo.findStatusById.mockResolvedValue(mockStatusRow);
+      repo.isStoreAssignedTo.mockResolvedValue(false);
+      dimensionService.findQuestionById.mockResolvedValue(mockQuestions[0]);
+      repo.upsertScore.mockResolvedValue(mockScoreRow);
+
+      await expect(service.updateScore('assessment-1', 1, dto, admin)).resolves.toBeDefined();
     });
 
     // "แบบ 50 ข้อ" §3.3 vs §3.4: ผู้ติดตาม/Assessor "ให้คะแนน T0–T4", while the
@@ -638,103 +654,6 @@ describe('AssessmentService', () => {
       await expect(
         service.removeEvidence('assessment-1', 'evidence-1', entrepreneur),
       ).rejects.toBeInstanceOf(ForbiddenException);
-    });
-  });
-
-  describe('bulkUpdateScores', () => {
-    const dto: BulkScoreDto = {
-      scores: [
-        { questionId: 1, rawScore: 3 },
-        { questionId: 2, rawScore: 4 },
-      ],
-    };
-
-    it('should bulk upsert scores and return progress', async () => {
-      repo.findStatusById.mockResolvedValue(mockStatusRow);
-      repo.bulkUpsertScores.mockResolvedValue(undefined);
-      repo.countScored.mockResolvedValue(2);
-
-      const result = await service.bulkUpdateScores('assessment-1', dto, admin);
-
-      expect(repo.bulkUpsertScores).toHaveBeenCalledWith('assessment-1', admin.sub, dto.scores);
-      expect(result).toEqual({ scored: 2, total: 50 });
-    });
-
-    it('should throw NotFoundException when a questionId does not exist', async () => {
-      repo.findStatusById.mockResolvedValue(mockStatusRow);
-      const badDto: BulkScoreDto = { scores: [{ questionId: 9999, rawScore: 3 }] };
-
-      await expect(service.bulkUpdateScores('assessment-1', badDto, admin)).rejects.toBeInstanceOf(
-        NotFoundException,
-      );
-      expect(repo.bulkUpsertScores).not.toHaveBeenCalled();
-    });
-
-    it('should throw ForbiddenException for ENTREPRENEUR', async () => {
-      await expect(
-        service.bulkUpdateScores('assessment-1', dto, entrepreneur),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
-    // Each entry becomes one upsert inside a single transaction, so the array
-    // length is what bounds how long Score rows stay locked.
-    it('should reject a payload longer than the question list before touching the database', async () => {
-      repo.findStatusById.mockResolvedValue(mockStatusRow);
-      const oversized: BulkScoreDto = {
-        scores: Array.from({ length: mockQuestions.length + 1 }, (_, i) => ({
-          questionId: (i % mockQuestions.length) + 1,
-          rawScore: 3,
-        })),
-      };
-
-      await expect(
-        service.bulkUpdateScores('assessment-1', oversized, admin),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      expect(repo.bulkUpsertScores).not.toHaveBeenCalled();
-    });
-
-    it('should reject two entries for the same question', async () => {
-      repo.findStatusById.mockResolvedValue(mockStatusRow);
-      const duplicated: BulkScoreDto = {
-        scores: [
-          { questionId: 1, rawScore: 3 },
-          { questionId: 1, rawScore: 0 },
-        ],
-      };
-
-      await expect(
-        service.bulkUpdateScores('assessment-1', duplicated, admin),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      expect(repo.bulkUpsertScores).not.toHaveBeenCalled();
-    });
-
-    it('should throw BadRequestException when the assessment is already submitted', async () => {
-      repo.findStatusById.mockResolvedValue({
-        ...mockStatusRow,
-        status: AssessmentStatus.SUBMITTED,
-      });
-
-      await expect(service.bulkUpdateScores('assessment-1', dto, admin)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
-      expect(repo.bulkUpsertScores).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('getProgress', () => {
-    it('should return scored/total counts', async () => {
-      repo.findStatusById.mockResolvedValue(mockStatusRow);
-      repo.countScored.mockResolvedValue(12);
-
-      const result = await service.getProgress('assessment-1', admin);
-
-      expect(result).toEqual({ scored: 12, total: 50 });
-    });
-
-    it('should throw NotFoundException when the assessment does not exist', async () => {
-      repo.findStatusById.mockResolvedValue(null);
-
-      await expect(service.getProgress('missing', admin)).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 
@@ -885,42 +804,6 @@ describe('AssessmentService', () => {
         BadRequestException,
       );
       expect(repo.submitAssessment).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('remove', () => {
-    it('should delete a draft assessment and its evidence directory', async () => {
-      repo.findStatusById.mockResolvedValue(mockStatusRow);
-      repo.remove.mockResolvedValue(undefined);
-
-      await service.remove('assessment-1', admin);
-
-      expect(repo.remove).toHaveBeenCalledWith('assessment-1');
-      expect(mockedDeleteLocalDir).toHaveBeenCalledWith('evidence/assessment-1');
-    });
-
-    it('should throw NotFoundException when the assessment does not exist', async () => {
-      repo.findStatusById.mockResolvedValue(null);
-
-      await expect(service.remove('missing', admin)).rejects.toBeInstanceOf(NotFoundException);
-    });
-
-    it('should throw ForbiddenException for ENTREPRENEUR', async () => {
-      await expect(service.remove('assessment-1', entrepreneur)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      );
-    });
-
-    it('should throw BadRequestException when the assessment is not a draft', async () => {
-      repo.findStatusById.mockResolvedValue({
-        ...mockStatusRow,
-        status: AssessmentStatus.SUBMITTED,
-      });
-
-      await expect(service.remove('assessment-1', admin)).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
-      expect(repo.remove).not.toHaveBeenCalled();
     });
   });
 });

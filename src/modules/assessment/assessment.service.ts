@@ -13,7 +13,7 @@ import {
   isAdminRole,
 } from '@constants/index';
 import { normalizePagination, buildPaginatedResult } from '@shared/pagination.util';
-import { saveLocalFile, deleteLocalFile, deleteLocalDir } from '@shared/file-storage.util';
+import { saveLocalFile, deleteLocalFile } from '@shared/file-storage.util';
 import type { PaginatedResult } from '@common/types/api-response.type';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { StoreService } from '@modules/store/store.service';
@@ -26,7 +26,6 @@ import {
 import { DimensionService } from './dimension.service';
 import type { CreateAssessmentDto } from './dto/create-assessment.dto';
 import type { UpdateScoreDto } from './dto/update-score.dto';
-import type { BulkScoreDto } from './dto/bulk-score.dto';
 import type { QueryAssessmentDto } from './dto/query-assessment.dto';
 import type { UpdateNotesDto } from './dto/update-notes.dto';
 import {
@@ -215,6 +214,7 @@ export class AssessmentService {
   async create(dto: CreateAssessmentDto, user: JwtPayload): Promise<AssessmentResult> {
     this.assertCanWrite(user);
     await this.storeService.findAccessible(dto.storeId, user);
+    await this.assertAssignedToStore(dto.storeId, user);
 
     const existing = await this.assessmentRepo.findByStoreAndRound(dto.storeId, dto.round);
     if (existing) {
@@ -241,7 +241,7 @@ export class AssessmentService {
     user: JwtPayload,
   ): Promise<AssessmentQuestionResult> {
     this.assertCanWrite(user);
-    await this.assertDraftOrInProgress(assessmentId);
+    await this.assertDraftOrInProgress(assessmentId, user);
 
     const question = await this.dimensionService.findQuestionById(questionId);
     if (!question) {
@@ -271,7 +271,7 @@ export class AssessmentService {
     user: JwtPayload,
   ): Promise<EvidenceResult> {
     this.assertCanWrite(user);
-    await this.assertDraftOrInProgress(assessmentId);
+    await this.assertDraftOrInProgress(assessmentId, user);
 
     const score = await this.assessmentRepo.findScore(assessmentId, questionId);
     if (!score) {
@@ -301,7 +301,7 @@ export class AssessmentService {
 
   async removeEvidence(assessmentId: string, evidenceId: string, user: JwtPayload): Promise<void> {
     this.assertCanWrite(user);
-    await this.assertDraftOrInProgress(assessmentId);
+    await this.assertDraftOrInProgress(assessmentId, user);
 
     const evidence = await this.assessmentRepo.findEvidenceById(evidenceId);
     if (!evidence || evidence.score.assessmentId !== assessmentId) {
@@ -312,73 +312,13 @@ export class AssessmentService {
     await deleteLocalFile(evidence.url);
   }
 
-  async bulkUpdateScores(
-    assessmentId: string,
-    dto: BulkScoreDto,
-    user: JwtPayload,
-  ): Promise<{ scored: number; total: number }> {
-    this.assertCanWrite(user);
-    await this.assertDraftOrInProgress(assessmentId);
-
-    const questions = await this.dimensionService.findAllQuestions();
-    // The DTO caps the array at a fixed request size; this is the real bound —
-    // scoring more entries than there are questions can only mean duplicates or
-    // junk, and every entry costs one upsert inside a single transaction.
-    if (dto.scores.length > questions.length) {
-      throw new BadRequestException(
-        ERROR_CODES.VALID.BAD_REQUEST,
-        `ส่งคะแนนได้ไม่เกิน ${questions.length} ข้อต่อครั้ง`,
-      );
-    }
-
-    const questionById = new Map(questions.map((q) => [q.id, q]));
-    const seenQuestionIds = new Set<number>();
-    for (const item of dto.scores) {
-      const question = questionById.get(item.questionId);
-      if (!question) {
-        throw new NotFoundException(
-          ERROR_CODES.ASSESS.QUESTION_NOT_FOUND,
-          `ไม่พบคำถามหมายเลข ${item.questionId}`,
-        );
-      }
-      // Two entries for one question would upsert the same row twice in the
-      // same transaction, and which score survives depends on array order.
-      if (seenQuestionIds.has(item.questionId)) {
-        throw new BadRequestException(
-          ERROR_CODES.VALID.BAD_REQUEST,
-          `ส่งคะแนนซ้ำสำหรับคำถามหมายเลข ${item.questionId}`,
-        );
-      }
-      seenQuestionIds.add(item.questionId);
-      this.assertScoreWithinMax(item.rawScore, question);
-    }
-
-    await this.assessmentRepo.bulkUpsertScores(assessmentId, user.sub, dto.scores);
-
-    return this.getProgress(assessmentId, user);
-  }
-
-  async getProgress(
-    assessmentId: string,
-    user: JwtPayload,
-  ): Promise<{ scored: number; total: number }> {
-    this.assertCanRead(user);
-    const assessment = await this.findStatusOrThrow(assessmentId);
-    await this.storeService.findAccessible(assessment.storeId, user);
-    const [scored, questions] = await Promise.all([
-      this.assessmentRepo.countScored(assessmentId),
-      this.dimensionService.findAllQuestions(),
-    ]);
-    return { scored, total: questions.length };
-  }
-
   async updateNotes(
     assessmentId: string,
     dto: UpdateNotesDto,
     user: JwtPayload,
   ): Promise<AssessmentResult> {
     this.assertCanWrite(user);
-    await this.assertDraftOrInProgress(assessmentId);
+    await this.assertDraftOrInProgress(assessmentId, user);
     await this.assessmentRepo.updateNotes(assessmentId, dto.notes ?? null);
     return this.findOne(assessmentId, user);
   }
@@ -389,7 +329,7 @@ export class AssessmentService {
   // is indistinguishable from one nobody has opened.
   async saveDraft(assessmentId: string, user: JwtPayload): Promise<AssessmentResult> {
     this.assertCanWrite(user);
-    await this.assertDraftOrInProgress(assessmentId);
+    await this.assertDraftOrInProgress(assessmentId, user);
     await this.assessmentRepo.markInProgress(assessmentId, user.sub);
     return this.findOne(assessmentId, user);
   }
@@ -398,6 +338,7 @@ export class AssessmentService {
     this.assertCanWrite(user);
     const assessment = await this.assessmentRepo.findDetailById(assessmentId);
     if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
+    await this.assertAssignedToStore(assessment.storeId, user);
     if (isCompleted(assessment.status)) {
       throw new BadRequestException(ERROR_CODES.ASSESS.SUBMITTED, 'การประเมินนี้ถูกส่งไปแล้ว');
     }
@@ -433,23 +374,6 @@ export class AssessmentService {
       redFlags,
     );
     return this.toResult(updated);
-  }
-
-  async remove(id: string, user: JwtPayload): Promise<void> {
-    this.assertCanWrite(user);
-    const assessment = await this.assessmentRepo.findStatusById(id);
-    if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
-    await this.storeService.findAccessible(assessment.storeId, user);
-    if (assessment.status !== AssessmentStatus.DRAFT) {
-      throw new BadRequestException(
-        ERROR_CODES.ASSESS.INVALID_STATE,
-        'ลบได้เฉพาะการประเมินที่ยังเป็นแบบร่างเท่านั้น',
-      );
-    }
-    await this.assessmentRepo.remove(id);
-    // The rows are gone; the files they pointed at would otherwise sit in
-    // uploads/ forever with nothing left referencing them.
-    await deleteLocalDir(`evidence/${id}`);
   }
 
   private async toResult(assessment: AssessmentDetail): Promise<AssessmentResult> {
@@ -536,8 +460,9 @@ export class AssessmentService {
     return assessment;
   }
 
-  private async assertDraftOrInProgress(assessmentId: string): Promise<void> {
+  private async assertDraftOrInProgress(assessmentId: string, user: JwtPayload): Promise<void> {
     const assessment = await this.findStatusOrThrow(assessmentId);
+    await this.assertAssignedToStore(assessment.storeId, user);
     if (isCompleted(assessment.status)) {
       throw new BadRequestException(
         ERROR_CODES.ASSESS.SUBMITTED,
@@ -545,6 +470,25 @@ export class AssessmentService {
       );
     }
     await this.assertPriorRoundCompleted(assessment.storeId, assessment.round);
+  }
+
+  // "ร้านที่ได้รับมอบหมาย" — the ASSIGNED data scope, enforced on writes only.
+  // A store read stays open to every staff role (see project-conventions.md);
+  // what an assessor may *score* is the SUPER_ADMIN's assignment list, set
+  // through PATCH /users/:id/assigned-stores.
+  //
+  // Admin roles are exempt: they run the programme and stand in for an assessor
+  // when nobody is assigned yet. An ASSESSOR with an empty list can score
+  // nothing at all, which is the point — assignment comes first.
+  private async assertAssignedToStore(storeId: string, user: JwtPayload): Promise<void> {
+    if (user.role !== Role.ASSESSOR) return;
+    const isAssigned = await this.assessmentRepo.isStoreAssignedTo(storeId, user.sub);
+    if (!isAssigned) {
+      throw new ForbiddenException(
+        ERROR_CODES.PERM.FORBIDDEN,
+        'ร้านนี้ไม่ได้อยู่ในรายการที่คุณได้รับมอบหมายให้ประเมิน',
+      );
+    }
   }
 
   private async assertPriorRoundCompleted(storeId: string, round: Round): Promise<void> {

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma, User, RefreshToken } from '@prisma/client';
+import type { Prisma, User, RefreshToken, PasswordResetOtp } from '@prisma/client';
 import { PrismaService } from '@database/prisma.service';
 
 const USER_SELECT_NO_PASSWORD = {
@@ -69,5 +69,53 @@ export class AuthRepository {
 
   deleteUser(id: string): Promise<User> {
     return this.prisma.user.delete({ where: { id } });
+  }
+
+  updatePassword(userId: string, password: string): Promise<User> {
+    return this.prisma.user.update({ where: { id: userId }, data: { password } });
+  }
+
+  upsertPasswordResetOtp(data: {
+    userId: string;
+    otpHash: string;
+    expiresAt: Date;
+  }): Promise<PasswordResetOtp> {
+    return this.prisma.passwordResetOtp.upsert({
+      where: { userId: data.userId },
+      update: {
+        otpHash: data.otpHash,
+        expiresAt: data.expiresAt,
+        attempts: 0,
+        consumedAt: null,
+        createdAt: new Date(),
+      },
+      create: {
+        userId: data.userId,
+        otpHash: data.otpHash,
+        expiresAt: data.expiresAt,
+      },
+    });
+  }
+
+  findPasswordResetOtp(userId: string): Promise<PasswordResetOtp | null> {
+    return this.prisma.passwordResetOtp.findUnique({ where: { userId } });
+  }
+
+  incrementPasswordResetOtpAttempts(userId: string): Promise<PasswordResetOtp> {
+    return this.prisma.passwordResetOtp.update({
+      where: { userId },
+      data: { attempts: { increment: 1 } },
+    });
+  }
+
+  consumePasswordResetOtp(userId: string): Promise<PasswordResetOtp> {
+    return this.prisma.passwordResetOtp.update({
+      where: { userId },
+      data: { consumedAt: new Date() },
+    });
+  }
+
+  deletePasswordResetOtp(userId: string): Promise<Prisma.BatchPayload> {
+    return this.prisma.passwordResetOtp.deleteMany({ where: { userId } });
   }
 }

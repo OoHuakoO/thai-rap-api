@@ -99,6 +99,10 @@ export class StoreRepository {
     return this.prisma.store.delete({ where: { id } });
   }
 
+  countAssessments(storeId: string): Promise<number> {
+    return this.prisma.assessment.count({ where: { storeId } });
+  }
+
   countAll(): Promise<number> {
     return this.prisma.store.count();
   }

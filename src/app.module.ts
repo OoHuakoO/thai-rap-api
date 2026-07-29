@@ -9,11 +9,13 @@ import {
   appConfig,
   authConfig,
   databaseConfig,
+  mailConfig,
   throttleConfig,
   envValidationSchema,
 } from './config';
 import { PrismaModule } from './database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { UserModule } from './modules/user/user.module';
 import { ProvinceModule } from './modules/province/province.module';
 import { StoreTypeModule } from './modules/store-type/store-type.module';
 import { StoreModule } from './modules/store/store.module';
@@ -32,7 +34,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     // ── Config (global) ──────────────────────────────────────────────────────
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [appConfig, authConfig, databaseConfig, throttleConfig],
+      load: [appConfig, authConfig, databaseConfig, mailConfig, throttleConfig],
       validationSchema: envValidationSchema,
       validationOptions: { abortEarly: true },
     }),
@@ -85,6 +87,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 
     // ── Feature Modules ──────────────────────────────────────────────────────
     AuthModule,
+    UserModule,
     ProvinceModule,
     StoreTypeModule,
     StoreModule,

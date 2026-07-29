@@ -36,11 +36,7 @@ export class DimensionService {
     return this.dimensionRepo.findQuestionById(id);
   }
 
-  findQuestionsByDimension(dimensionId: number): Promise<Question[]> {
-    return this.dimensionRepo.findQuestionsByDimension(dimensionId);
-  }
-
-  findAllQuestions(dimensionId?: number): Promise<Question[]> {
-    return this.dimensionRepo.findAllQuestions(dimensionId);
+  findAllQuestions(): Promise<Question[]> {
+    return this.dimensionRepo.findAllQuestions();
   }
 }

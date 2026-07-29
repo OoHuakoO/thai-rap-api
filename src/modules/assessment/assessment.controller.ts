@@ -29,7 +29,6 @@ import {
 import { AssessmentService } from './assessment.service';
 import { CreateAssessmentDto } from './dto/create-assessment.dto';
 import { UpdateScoreDto } from './dto/update-score.dto';
-import { BulkScoreDto } from './dto/bulk-score.dto';
 import { QueryAssessmentDto } from './dto/query-assessment.dto';
 import { RankQueryDto } from './dto/rank-query.dto';
 import { UpdateNotesDto } from './dto/update-notes.dto';
@@ -75,16 +74,6 @@ export class AssessmentController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.assessmentService.updateScore(id, questionId, dto, user);
-  }
-
-  @Post(':id/scores/bulk')
-  @ApiOperation({ summary: 'Upsert scores for multiple questions at once' })
-  bulkUpdateScores(
-    @Param('id') id: string,
-    @Body() dto: BulkScoreDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.assessmentService.bulkUpdateScores(id, dto, user);
   }
 
   @Post(':id/scores/:questionId/evidence')
@@ -136,12 +125,6 @@ export class AssessmentController {
     return null;
   }
 
-  @Get(':id/scores/progress')
-  @ApiOperation({ summary: 'Get how many of the 50 questions are scored' })
-  getProgress(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return this.assessmentService.getProgress(id, user);
-  }
-
   @Patch(':id/notes')
   @ApiOperation({ summary: 'Update the assessor notes on a draft/in-progress assessment' })
   updateNotes(
@@ -162,12 +145,5 @@ export class AssessmentController {
   @ApiOperation({ summary: 'Submit an assessment — computes score, zone, and red flags' })
   submit(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.assessmentService.submit(id, user);
-  }
-
-  @Delete(':id')
-  @ApiOperation({ summary: 'Delete a draft assessment' })
-  async remove(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    await this.assessmentService.remove(id, user);
-    return null;
   }
 }

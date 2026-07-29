@@ -17,4 +17,15 @@ export const envValidationSchema = Joi.object({
 
   THROTTLE_TTL: Joi.number().default(60000),
   THROTTLE_LIMIT: Joi.number().default(100),
+
+  // Leaving SMTP_HOST unset is a supported development mode: MailService logs the
+  // OTP instead of sending it, so the reset flow is testable without a mail server.
+  SMTP_HOST: Joi.string().allow('').default(''),
+  SMTP_PORT: Joi.number().default(587),
+  SMTP_SECURE: Joi.boolean().default(false),
+  SMTP_USER: Joi.string().allow('').default(''),
+  SMTP_PASSWORD: Joi.string().allow('').default(''),
+  MAIL_FROM: Joi.string().default('Thai Rap <no-reply@thai-rap.local>'),
+  PASSWORD_RESET_OTP_TTL_MINUTES: Joi.number().default(10),
+  PASSWORD_RESET_OTP_MAX_ATTEMPTS: Joi.number().default(5),
 });

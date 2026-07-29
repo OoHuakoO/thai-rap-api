@@ -43,6 +43,30 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 
 ## Known Sync Points (as of 2026-07)
 
+- `POST /auth/register` creates a **PENDING** account and returns `{ user }`
+  only — no `tokens`, no refresh cookie. Login and refresh both reject PENDING
+  with 403 `AUTH_006`, so a sign-up is inert until `PATCH /users/:id/approve`.
+  The web register page must not expect a session back.
+- Password reset is three public calls: `POST /auth/forgot-password` always
+  answers 200 for any address (never reveals whether it is registered),
+  `POST /auth/verify-otp` trades the 6-digit code for a 10-minute `resetToken`,
+  and `POST /auth/reset-password` accepts **only** that token plus the new
+  password — the OTP never travels twice. New codes: `AUTH_007` invalid,
+  `AUTH_008` expired, `AUTH_009` attempts exhausted (5), `AUTH_010` reset token
+  invalid; 007–009 are 400, 010 is 401. `forgot-password` is throttled to 3/min
+  (the others 10/min), which the web mirrors as a 60-second resend cooldown in
+  `OTP_RESEND_COOLDOWN_SECONDS`. Web mock: `mocks/handlers/auth.handlers.ts`
+  accepts one fixed code, `MOCK_OTP` in `mocks/fixtures/password-reset.fixtures.ts`.
+- `/users/*` is **SUPER_ADMIN only** (403 `PERM_001` for everyone else,
+  ADMIN included), matching `SUPER_ADMIN_ONLY_PERMISSIONS` and the
+  `allowedRoles` on `ROUTES.USERS` in the web. `PATCH /users/:id/assigned-stores`
+  and `/owned-stores` take the **complete** id list — an omitted store is
+  revoked, `[]` clears everything.
+- Assessment **writes** are gated on `Store.assignedUsers` for ASSESSOR
+  (403 `PERM_001`); admin roles bypass. An ASSESSOR with no assignments can
+  score nothing, so the web must surface that 403 rather than auto-creating a
+  draft. Reads are unaffected.
+
 - 422 validation errors return `VALID_002` (`VALIDATION_FAILED`); generic 400
   is `VALID_001` (`BAD_REQUEST`). Web mock: `mocks/handlers/user.handlers.ts`.
 - Store documents accept pdf / xlsx / docx / csv only (no images) — matches

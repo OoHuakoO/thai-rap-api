@@ -14,18 +14,8 @@ export class DimensionRepository {
     return this.prisma.dimension.findUnique({ where: { id } });
   }
 
-  findQuestionsByDimension(dimensionId: number): Promise<Question[]> {
-    return this.prisma.question.findMany({
-      where: { dimensionId },
-      orderBy: { questionNo: 'asc' },
-    });
-  }
-
-  findAllQuestions(dimensionId?: number): Promise<Question[]> {
-    return this.prisma.question.findMany({
-      where: dimensionId !== undefined ? { dimensionId } : undefined,
-      orderBy: { questionNo: 'asc' },
-    });
+  findAllQuestions(): Promise<Question[]> {
+    return this.prisma.question.findMany({ orderBy: { questionNo: 'asc' } });
   }
 
   findQuestionById(id: number): Promise<Question | null> {

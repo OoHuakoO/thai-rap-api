@@ -2,6 +2,7 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { Role, Round, StoreStatus, type Store, type StoreDocument } from '@prisma/client';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@common/exceptions/app.exception';
@@ -97,6 +98,7 @@ describe('StoreService', () => {
             create: jest.fn(),
             update: jest.fn(),
             remove: jest.fn(),
+            countAssessments: jest.fn().mockResolvedValue(0),
             countAll: jest.fn(),
             countDistinctStoresByRound: jest.fn(),
             findLatestAssessments: jest.fn().mockResolvedValue(new Map()),
@@ -468,6 +470,23 @@ describe('StoreService', () => {
         ForbiddenException,
       );
       expect(repository.remove).not.toHaveBeenCalled();
+    });
+
+    it('should throw ConflictException when the store has assessments', async () => {
+      repository.findById.mockResolvedValue(mockStore);
+      repository.countAssessments.mockResolvedValue(2);
+
+      await expect(service.remove('store-1', admin)).rejects.toBeInstanceOf(ConflictException);
+      expect(repository.remove).not.toHaveBeenCalled();
+      expect(mockedDeleteLocalDir).not.toHaveBeenCalled();
+    });
+
+    it('should throw ConflictException when the store still has documents', async () => {
+      repository.findById.mockResolvedValue({ ...mockStore, documents: [mockDocument] });
+
+      await expect(service.remove('store-1', admin)).rejects.toBeInstanceOf(ConflictException);
+      expect(repository.remove).not.toHaveBeenCalled();
+      expect(mockedDeleteLocalDir).not.toHaveBeenCalled();
     });
   });
 

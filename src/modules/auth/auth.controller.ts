@@ -1,11 +1,15 @@
-import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus, Res } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, HttpCode, HttpStatus, Res } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
+import { Throttle } from '@nestjs/throttler';
 import type { CookieOptions, Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyOtpDto } from './dto/verify-otp.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import { Public } from '@common/decorators/public.decorator';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
@@ -25,14 +29,18 @@ export class AuthController {
   @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Register a new user' })
-  @ApiResponse({ status: HttpStatus.CREATED, description: 'User registered successfully' })
+  @ApiOperation({
+    summary: 'Register a new user — creates a PENDING account, no session is issued',
+  })
+  @ApiResponse({
+    status: HttpStatus.CREATED,
+    description: 'Account created and awaiting super-admin approval',
+  })
   @ApiResponse({ status: HttpStatus.CONFLICT, description: 'Email already exists' })
   @ApiResponse({ status: HttpStatus.UNPROCESSABLE_ENTITY, description: 'Validation failed' })
-  async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
+  async register(@Body() dto: RegisterDto) {
     const result = await this.authService.register(dto);
-    this.setRefreshCookie(res, result.tokens.refreshToken);
-    return { user: result.user, tokens: this.omitRefreshToken(result.tokens) };
+    return { user: result.user };
   }
 
   @Public()
@@ -73,13 +81,40 @@ export class AuthController {
     return null;
   }
 
-  @Get('me')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Get current authenticated user' })
-  @ApiResponse({ status: HttpStatus.OK, description: 'Current user profile' })
-  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Unauthorized' })
-  getMe(@CurrentUser() user: JwtPayload) {
-    return this.authService.getMe(user.sub);
+  @Public()
+  // Tighter than the global 100/min: this endpoint sends mail and reveals timing.
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send a password reset OTP to the account email' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'OTP sent if the email is registered' })
+  @ApiResponse({ status: HttpStatus.TOO_MANY_REQUESTS, description: 'Too many requests' })
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.forgotPassword(dto);
+    return null;
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('verify-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Exchange a password reset OTP for a short-lived reset token' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Reset token issued' })
+  @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'OTP invalid, expired or exhausted' })
+  verifyOtp(@Body() dto: VerifyOtpDto) {
+    return this.authService.verifyResetOtp(dto);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Set a new password using a reset token' })
+  @ApiResponse({ status: HttpStatus.OK, description: 'Password updated' })
+  @ApiResponse({ status: HttpStatus.UNAUTHORIZED, description: 'Reset token invalid or expired' })
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto);
+    return null;
   }
 
   private getRefreshCookieOptions(): CookieOptions {

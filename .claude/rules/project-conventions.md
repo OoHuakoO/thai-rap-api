@@ -120,9 +120,10 @@ Store access rules:
 
 - **ENTREPRENEUR** reads and manages only the store they own (`store.ownerId === user.sub`).
 - **ASSESSOR and other staff roles** read every store — do NOT gate store reads on
-  `Store.assignedUsers`. That relation exists in the schema for assessor
-  assignment but is intentionally not an access filter; assignment checks (if
-  any) belong to assessment write flows, not store reads.
+  `Store.assignedUsers`. That relation is not a read filter; it gates assessment
+  **writes** only, through `AssessmentService.assertAssignedToStore` — an
+  ASSESSOR may score a store only if a SUPER_ADMIN assigned it
+  (`PATCH /users/:id/assigned-stores`). Admin roles bypass that check.
 - Store aggregate stats (`GET /stores/stats`) are limited to **ADMIN and
   ENTREPRENEUR only** — matches the roles that can open the web `/stores` page
   (`ROUTE_PERMISSIONS` in the web repo). ASSESSOR/MENTOR/JUDGE/ME_TEAM get 403

@@ -1,16 +1,27 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { createHmac, randomInt } from 'crypto';
 import type { User } from '@prisma/client';
 import { UserStatus } from '@prisma/client';
 import { AuthRepository } from './auth.repository';
+import { MailService } from '@modules/mail/mail.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
+import type { ForgotPasswordDto } from './dto/forgot-password.dto';
+import type { VerifyOtpDto } from './dto/verify-otp.dto';
+import type { ResetPasswordDto } from './dto/reset-password.dto';
+import {
+  PASSWORD_RESET_OTP_LENGTH,
+  PASSWORD_RESET_TOKEN_EXPIRES_IN,
+  PASSWORD_RESET_TOKEN_PURPOSE,
+} from './auth.const';
 import {
   UnauthorizedException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  BadRequestException,
 } from '@common/exceptions/app.exception';
 import { ERROR_CODES } from '@constants/index';
 import { hashPassword, comparePassword, hashToken, compareToken } from '@shared/hash.util';
@@ -26,15 +37,29 @@ export interface AuthResult {
   tokens: AuthTokens;
 }
 
+export interface RegisterResult {
+  user: Omit<User, 'password'>;
+}
+
+export interface VerifyOtpResult {
+  resetToken: string;
+  expiresIn: number;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
     private readonly authRepository: AuthRepository,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<AuthResult> {
+  // Signing up creates the account but not a session: the row lands PENDING and
+  // login/refresh both reject that status, so nobody gets in until a SUPER_ADMIN
+  // approves through PATCH /users/:id/approve. No tokens are issued here at all
+  // — an approval step that hands out a 7-day refresh token first is not one.
+  async register(dto: RegisterDto): Promise<RegisterResult> {
     const existing = await this.authRepository.findUserByEmail(dto.email);
     if (existing) {
       throw new ConflictException(ERROR_CODES.USER.EMAIL_EXISTS, 'อีเมลนี้ถูกใช้งานแล้ว');
@@ -46,17 +71,10 @@ export class AuthService {
       email: dto.email,
       password: hashedPassword,
       role: dto.role,
-      status: UserStatus.ACTIVE,
+      status: UserStatus.PENDING,
     });
 
-    try {
-      const tokens = await this.issueTokens(user.id, user.email, user.role);
-      await this.storeRefreshToken(user.id, tokens.refreshToken);
-      return { user: this.omitPassword(user), tokens };
-    } catch (error) {
-      await this.authRepository.deleteUser(user.id).catch(() => {});
-      throw error;
-    }
+    return { user: this.omitPassword(user) };
   }
 
   async login(dto: LoginDto): Promise<AuthResult> {
@@ -150,12 +168,121 @@ export class AuthService {
     }
   }
 
-  async getMe(userId: string): Promise<Omit<User, 'password'>> {
-    const user = await this.authRepository.findUserById(userId);
+  // Always resolves, whatever the email is: a caller must not be able to tell a
+  // registered address from an unregistered one by the shape of the response.
+  async forgotPassword(dto: ForgotPasswordDto): Promise<void> {
+    const user = await this.authRepository.findUserByEmail(dto.email);
+    if (!user || user.status === UserStatus.SUSPENDED) return;
+
+    const otp = this.generateOtp();
+    const expiresInMinutes = this.configService.get<number>('mail.otpExpiresInMinutes', 10);
+    const otpHash = await hashPassword(otp);
+
+    await this.authRepository.upsertPasswordResetOtp({
+      userId: user.id,
+      otpHash,
+      expiresAt: new Date(Date.now() + expiresInMinutes * 60 * 1000),
+    });
+
+    await this.mailService.sendPasswordResetOtp(user.email, user.name, otp, expiresInMinutes);
+  }
+
+  async verifyResetOtp(dto: VerifyOtpDto): Promise<VerifyOtpResult> {
+    const user = await this.authRepository.findUserByEmail(dto.email);
+    if (!user) {
+      throw new BadRequestException(ERROR_CODES.AUTH.OTP_INVALID, 'รหัส OTP ไม่ถูกต้อง');
+    }
+
+    const record = await this.authRepository.findPasswordResetOtp(user.id);
+    if (!record || record.consumedAt) {
+      throw new BadRequestException(ERROR_CODES.AUTH.OTP_INVALID, 'รหัส OTP ไม่ถูกต้อง');
+    }
+
+    if (new Date() > record.expiresAt) {
+      throw new BadRequestException(ERROR_CODES.AUTH.OTP_EXPIRED, 'รหัส OTP หมดอายุแล้ว');
+    }
+
+    const maxAttempts = this.configService.get<number>('mail.otpMaxAttempts', 5);
+    if (record.attempts >= maxAttempts) {
+      throw new BadRequestException(
+        ERROR_CODES.AUTH.OTP_ATTEMPTS_EXCEEDED,
+        'กรอกรหัส OTP ผิดเกินจำนวนครั้งที่กำหนด กรุณาขอรหัสใหม่',
+      );
+    }
+
+    const isOtpValid = await comparePassword(dto.otp, record.otpHash);
+    if (!isOtpValid) {
+      await this.authRepository.incrementPasswordResetOtpAttempts(user.id);
+      throw new BadRequestException(ERROR_CODES.AUTH.OTP_INVALID, 'รหัส OTP ไม่ถูกต้อง');
+    }
+
+    await this.authRepository.consumePasswordResetOtp(user.id);
+
+    const resetToken = await this.jwtService.signAsync(
+      { sub: user.id, purpose: PASSWORD_RESET_TOKEN_PURPOSE },
+      { secret: this.getPasswordResetSecret(), expiresIn: PASSWORD_RESET_TOKEN_EXPIRES_IN },
+    );
+
+    return { resetToken, expiresIn: 10 * 60 };
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<void> {
+    let payload: { sub: string; purpose?: string };
+    try {
+      payload = await this.jwtService.verifyAsync<{ sub: string; purpose?: string }>(
+        dto.resetToken,
+        { secret: this.getPasswordResetSecret() },
+      );
+    } catch {
+      throw new UnauthorizedException(
+        ERROR_CODES.AUTH.RESET_TOKEN_INVALID,
+        'ลิงก์ตั้งรหัสผ่านใหม่ไม่ถูกต้องหรือหมดอายุแล้ว',
+      );
+    }
+
+    if (payload.purpose !== PASSWORD_RESET_TOKEN_PURPOSE) {
+      throw new UnauthorizedException(
+        ERROR_CODES.AUTH.RESET_TOKEN_INVALID,
+        'ลิงก์ตั้งรหัสผ่านใหม่ไม่ถูกต้องหรือหมดอายุแล้ว',
+      );
+    }
+
+    const user = await this.authRepository.findUserById(payload.sub);
     if (!user) {
       throw new NotFoundException(ERROR_CODES.USER.NOT_FOUND, 'ไม่พบผู้ใช้งาน');
     }
-    return user;
+
+    // The OTP row must still be there and consumed — deleting it here is what stops
+    // one verify from minting a token that resets the password more than once.
+    const record = await this.authRepository.findPasswordResetOtp(user.id);
+    if (!record?.consumedAt) {
+      throw new UnauthorizedException(
+        ERROR_CODES.AUTH.RESET_TOKEN_INVALID,
+        'ลิงก์ตั้งรหัสผ่านใหม่ไม่ถูกต้องหรือหมดอายุแล้ว',
+      );
+    }
+
+    await this.authRepository.updatePassword(user.id, await hashPassword(dto.password));
+    await this.authRepository.deletePasswordResetOtp(user.id);
+
+    // Every existing session dies with the old password.
+    const tokenRecord = await this.authRepository.findRefreshToken(user.id);
+    if (tokenRecord) {
+      await this.authRepository.revokeRefreshToken(user.id);
+    }
+  }
+
+  private generateOtp(): string {
+    const max = 10 ** PASSWORD_RESET_OTP_LENGTH;
+    return String(randomInt(0, max)).padStart(PASSWORD_RESET_OTP_LENGTH, '0');
+  }
+
+  // Derived rather than its own env var, but still distinct from the access secret:
+  // a reset token signed with the access secret would pass JwtAccessStrategy and
+  // authenticate as a roleless user.
+  private getPasswordResetSecret(): string {
+    const accessSecret = this.configService.get<string>('auth.jwtAccessSecret') as string;
+    return createHmac('sha256', accessSecret).update(PASSWORD_RESET_TOKEN_PURPOSE).digest('hex');
   }
 
   private async issueTokens(userId: string, email: string, role: string): Promise<AuthTokens> {

@@ -180,20 +180,17 @@ export class AssessmentRepository {
     return this.prisma.assessment.findUnique({ where: { id }, select: statusSelect });
   }
 
-  create(data: Prisma.AssessmentCreateInput): Promise<Assessment> {
-    return this.prisma.assessment.create({ data });
+  // Counts rather than fetching: the caller only needs "is this pair linked",
+  // and the join row carries nothing else worth reading.
+  async isStoreAssignedTo(storeId: string, userId: string): Promise<boolean> {
+    const count = await this.prisma.store.count({
+      where: { id: storeId, assignedUsers: { some: { id: userId } } },
+    });
+    return count > 0;
   }
 
-  // Every child FK is ON DELETE RESTRICT, so deleting the row on its own fails
-  // as soon as a single question has been scored — the children have to go
-  // first, innermost outwards, inside one transaction.
-  async remove(id: string): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.evidence.deleteMany({ where: { score: { assessmentId: id } } });
-      await tx.score.deleteMany({ where: { assessmentId: id } });
-      await tx.redFlag.deleteMany({ where: { assessmentId: id } });
-      await tx.assessment.delete({ where: { id } });
-    });
+  create(data: Prisma.AssessmentCreateInput): Promise<Assessment> {
+    return this.prisma.assessment.create({ data });
   }
 
   updateNotes(id: string, notes: string | null): Promise<Assessment> {
@@ -229,23 +226,6 @@ export class AssessmentRepository {
     data: { rawScore: number; note?: string; suggestion?: string },
   ): Promise<Score> {
     return this.prisma.score.upsert(this.buildScoreUpsertArgs(assessmentId, questionId, data));
-  }
-
-  async bulkUpsertScores(
-    assessmentId: string,
-    assessorId: string,
-    items: Array<{ questionId: number; rawScore: number; note?: string; suggestion?: string }>,
-  ): Promise<void> {
-    await this.prisma.$transaction([
-      ...items.map((item) =>
-        this.prisma.score.upsert(this.buildScoreUpsertArgs(assessmentId, item.questionId, item)),
-      ),
-      this.prisma.assessment.update({ where: { id: assessmentId }, data: { assessorId } }),
-    ]);
-  }
-
-  countScored(assessmentId: string): Promise<number> {
-    return this.prisma.score.count({ where: { assessmentId, rawScore: { not: null } } });
   }
 
   findScore(assessmentId: string, questionId: number): Promise<Score | null> {

@@ -98,7 +98,8 @@ model User {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  refreshToken   RefreshToken?
+  refreshToken     RefreshToken?
+  passwordResetOtp PasswordResetOtp?
   assessments    Assessment[]
   assignedStores Store[]       @relation("AssignedAssessor")
   ownedStores    Store[]       @relation("StoreOwner")
@@ -130,6 +131,20 @@ model RefreshToken {
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// One live OTP per user — requesting a new code replaces the previous row, so an
+// old code can never be redeemed after the user asks for another one.
+model PasswordResetOtp {
+  id         String    @id @default(cuid())
+  userId     String    @unique
+  otpHash    String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
