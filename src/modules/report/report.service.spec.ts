@@ -1,3 +1,4 @@
+import { Writable } from 'node:stream';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { AssessmentStatus, RedFlagType, Role, Round, Severity } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
@@ -5,6 +6,8 @@ import { ForbiddenException, NotFoundException } from '@common/exceptions/app.ex
 import { ERROR_CODES } from '@constants/index';
 import { DimensionService } from '@modules/assessment/dimension.service';
 import { StoreService } from '@modules/store/store.service';
+import { streamRoundMatrixWorkbook } from './report-excel.util';
+import { streamRoundMatrixPdf } from './report-pdf.util';
 import {
   ReportRepository,
   type RoundMatrixRowData,
@@ -77,6 +80,36 @@ function roundRow(overrides: Partial<RoundReportRow> = {}): RoundReportRow {
   } as RoundReportRow;
 }
 
+function matrixRow(overrides: Partial<RoundMatrixRowData> = {}): RoundMatrixRowData {
+  return {
+    storeId: 'store-1',
+    round: Round.T0,
+    totalScore: 62.5,
+    submittedAt: new Date('2026-05-20T00:00:00.000Z'),
+    store: { code: 'RAP69-001', name: 'ครัวริมธาร', province: 'จันทบุรี' },
+    scores: [
+      { rawScore: 4, question: { dimensionId: 1 } },
+      { rawScore: 2, question: { dimensionId: 1 } },
+      { rawScore: 1, question: { dimensionId: 2 } },
+      { rawScore: null, question: { dimensionId: 2 } },
+    ],
+    redFlags: [{ resolved: false }, { resolved: true }],
+    ...overrides,
+  } as RoundMatrixRowData;
+}
+
+async function collect(write: (out: Writable) => Promise<void>): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  const out = new Writable({
+    write(chunk: Buffer, _encoding, done) {
+      chunks.push(Buffer.from(chunk));
+      done();
+    },
+  });
+  await write(out);
+  return Buffer.concat(chunks);
+}
+
 describe('ReportService', () => {
   let service: ReportService;
   let repository: jest.Mocked<ReportRepository>;
@@ -92,6 +125,8 @@ describe('ReportService', () => {
             findSubmittedRound: jest.fn().mockResolvedValue(null),
             findSubmittedRounds: jest.fn().mockResolvedValue([]),
             findSubmittedByRound: jest.fn().mockResolvedValue([]),
+            countSubmittedByRound: jest.fn().mockResolvedValue(0),
+            sumRawScoresByQuestion: jest.fn().mockResolvedValue([]),
             findRecentSubmitted: jest.fn().mockResolvedValue([]),
           },
         },
@@ -252,23 +287,9 @@ describe('ReportService', () => {
   });
 
   describe('getRoundMatrixReport', () => {
-    function matrixRow(overrides: Partial<RoundMatrixRowData> = {}): RoundMatrixRowData {
-      return {
-        storeId: 'store-1',
-        round: Round.T0,
-        totalScore: 62.5,
-        submittedAt: new Date('2026-05-20T00:00:00.000Z'),
-        store: { code: 'RAP69-001', name: 'ครัวริมธาร', province: 'จันทบุรี' },
-        scores: [
-          { rawScore: 4, question: { dimensionId: 1 } },
-          { rawScore: 2, question: { dimensionId: 1 } },
-          { rawScore: 1, question: { dimensionId: 2 } },
-          { rawScore: null, question: { dimensionId: 2 } },
-        ],
-        redFlags: [{ resolved: false }, { resolved: true }],
-        ...overrides,
-      } as RoundMatrixRowData;
-    }
+    beforeEach(() => {
+      repository.countSubmittedByRound.mockResolvedValue(1);
+    });
 
     it('should give every store a row of dimension percentages', async () => {
       repository.findSubmittedByRound.mockResolvedValue([matrixRow()]);
@@ -298,27 +319,39 @@ describe('ReportService', () => {
       expect(result.rows[0].criticalDimensionName).toBe('การเงิน');
     });
 
-    it('should average each dimension across the cohort', async () => {
-      repository.findSubmittedByRound.mockResolvedValue([
-        matrixRow(),
-        matrixRow({
-          storeId: 'store-2',
-          totalScore: 30,
-          store: { code: 'RAP69-002', name: 'ร้านสอง', province: 'ระยอง' },
-          scores: [
-            { rawScore: 2, question: { dimensionId: 1 } },
-            { rawScore: 0, question: { dimensionId: 1 } },
-            { rawScore: 3, question: { dimensionId: 2 } },
-            { rawScore: 1, question: { dimensionId: 2 } },
-          ],
-        } as Partial<RoundMatrixRowData>),
+    // The averages cover the whole round, not the page — they come from a
+    // database-side sum of the raw scores, which is the same number as the mean
+    // of the stores' percentages because every store is out of the same total.
+    it('should average each dimension across the cohort, not the page', async () => {
+      repository.countSubmittedByRound.mockResolvedValue(2);
+      repository.findSubmittedByRound.mockResolvedValue([matrixRow()]);
+      // Two stores: Q1 4+2, Q2 2+0, Q3 1+3, Q4 0+1.
+      repository.sumRawScoresByQuestion.mockResolvedValue([
+        { questionId: 1, rawScore: 6 },
+        { questionId: 2, rawScore: 2 },
+        { questionId: 3, rawScore: 4 },
+        { questionId: 4, rawScore: 1 },
       ]);
 
-      const result = await service.getRoundMatrixReport(Round.T0, admin);
+      const result = await service.getRoundMatrixReport(Round.T0, admin, { limit: 1 });
 
       // dimension 1: (75 + 25) / 2, dimension 2: (12.5 + 50) / 2
+      expect(result.rows).toHaveLength(1);
       expect(result.averageByDimension).toEqual({ 1: 50, 2: 31.25 });
-      expect(result.averageWeightedScore).toBe(46.25);
+      expect(result.averageWeightedScore).toBe(42.5);
+    });
+
+    it('should return one page of stores and say how many there are in all', async () => {
+      repository.countSubmittedByRound.mockResolvedValue(42);
+      repository.findSubmittedByRound.mockResolvedValue([matrixRow()]);
+
+      const result = await service.getRoundMatrixReport(Round.T0, admin, { page: 3, limit: 20 });
+
+      expect(result.meta).toEqual({ page: 3, limit: 20, total: 42, totalPages: 3 });
+      expect(repository.findSubmittedByRound).toHaveBeenCalledWith(Round.T0, undefined, {
+        skip: 40,
+        take: 20,
+      });
     });
 
     // This is the one report that shows a store its neighbours' scores, so it
@@ -354,7 +387,42 @@ describe('ReportService', () => {
 
       expect(result.rows).toEqual([]);
       expect(result.averageWeightedScore).toBeNull();
+      expect(result.meta.total).toBe(0);
       expect(repository.findSubmittedByRound).not.toHaveBeenCalled();
+      expect(repository.countSubmittedByRound).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('openRoundMatrixExport', () => {
+    it('should cover every store in the round, not the page the table is on', async () => {
+      repository.countSubmittedByRound.mockResolvedValue(3);
+      repository.findSubmittedByRound.mockResolvedValue([
+        matrixRow(),
+        matrixRow({
+          storeId: 'store-2',
+          store: { code: 'RAP69-002', name: 'ร้านสอง', province: 'ระยอง' },
+        } as Partial<RoundMatrixRowData>),
+        matrixRow({
+          storeId: 'store-3',
+          store: { code: 'RAP69-003', name: 'ร้านสาม', province: 'ตราด' },
+        } as Partial<RoundMatrixRowData>),
+      ]);
+
+      const source = await service.openRoundMatrixExport(Round.T0, admin);
+      const codes: string[] = [];
+      for await (const row of source.rows) codes.push(row.storeCode);
+
+      expect(source.storeCount).toBe(3);
+      expect(codes).toEqual(['RAP69-001', 'RAP69-002', 'RAP69-003']);
+      // One batch, because it came back shorter than the batch size.
+      expect(repository.findSubmittedByRound).toHaveBeenCalledTimes(1);
+    });
+
+    it('should refuse a non-admin before opening anything', async () => {
+      await expect(service.openRoundMatrixExport(Round.T0, owner)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(repository.countSubmittedByRound).not.toHaveBeenCalled();
     });
   });
 
@@ -391,14 +459,30 @@ describe('ReportService', () => {
       expect(file.subarray(0, 2).toString()).toBe('PK');
     });
 
-    it('should build an xlsx buffer for the all-stores matrix', async () => {
-      const file = await service.exportRoundMatrixReport(Round.T0, 'xlsx', admin);
+    it('should stream an xlsx for the all-stores matrix', async () => {
+      repository.countSubmittedByRound.mockResolvedValue(1);
+      repository.findSubmittedByRound.mockResolvedValue([matrixRow()]);
+      const source = await service.openRoundMatrixExport(Round.T0, admin);
+
+      const file = await collect((out) => streamRoundMatrixWorkbook(source, out));
 
       expect(file.subarray(0, 2).toString()).toBe('PK');
     });
 
-    it('should build a pdf buffer for the all-stores matrix', async () => {
-      const file = await service.exportRoundMatrixReport(Round.T0, 'pdf', admin);
+    it('should stream a pdf for the all-stores matrix', async () => {
+      repository.countSubmittedByRound.mockResolvedValue(1);
+      repository.findSubmittedByRound.mockResolvedValue([matrixRow()]);
+      const source = await service.openRoundMatrixExport(Round.T0, admin);
+
+      const file = await collect((out) => streamRoundMatrixPdf(source, out));
+
+      expect(file.subarray(0, 4).toString()).toBe('%PDF');
+    });
+
+    it('should still produce a pdf when no store submitted the round', async () => {
+      const source = await service.openRoundMatrixExport(Round.T0, admin);
+
+      const file = await collect((out) => streamRoundMatrixPdf(source, out));
 
       expect(file.subarray(0, 4).toString()).toBe('%PDF');
     });

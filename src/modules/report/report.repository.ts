@@ -5,6 +5,14 @@ import { assessmentStoreScopeWhere, type StoreListScope } from '@shared/store-sc
 
 const SUBMITTED_STATUSES = [AssessmentStatus.SUBMITTED, AssessmentStatus.APPROVED];
 
+function matrixWhere(round: Round, storeIds?: string[]): Prisma.AssessmentWhereInput {
+  return {
+    round,
+    status: { in: SUBMITTED_STATUSES },
+    ...(storeIds ? { storeId: { in: storeIds } } : {}),
+  };
+}
+
 const roundReportSelect = {
   id: true,
   round: true,
@@ -52,6 +60,17 @@ export type AvailableReportRow = Prisma.AssessmentGetPayload<{
   select: typeof availableReportSelect;
 }>;
 
+export interface MatrixSlice {
+  skip: number;
+  take: number;
+}
+
+/** Σ rawScore of one question across every store in the round. */
+export interface QuestionRawScoreSum {
+  questionId: number;
+  rawScore: number;
+}
+
 @Injectable()
 export class ReportRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -74,16 +93,37 @@ export class ReportRepository {
   // storeIds is the caller's accessible set, already resolved by StoreService —
   // undefined means "no narrowing", which is not the same as an empty array
   // (a caller with access to nothing must match no store, not every store).
-  findSubmittedByRound(round: Round, storeIds?: string[]): Promise<RoundMatrixRowData[]> {
+  findSubmittedByRound(
+    round: Round,
+    storeIds?: string[],
+    slice?: MatrixSlice,
+  ): Promise<RoundMatrixRowData[]> {
     return this.prisma.assessment.findMany({
-      where: {
-        round,
-        status: { in: SUBMITTED_STATUSES },
-        ...(storeIds ? { storeId: { in: storeIds } } : {}),
-      },
+      where: matrixWhere(round, storeIds),
       orderBy: { store: { code: 'asc' } },
+      ...(slice ?? {}),
       select: roundMatrixSelect,
     });
+  }
+
+  countSubmittedByRound(round: Round, storeIds?: string[]): Promise<number> {
+    return this.prisma.assessment.count({ where: matrixWhere(round, storeIds) });
+  }
+
+  // The cohort averages, without carrying every store's 50 scores to the API:
+  // the mean of the stores' dimension percentages is Σ rawScore in that
+  // dimension / (store count × maxTotal), so the sum can be done in the
+  // database and the response holds one number per question instead of per row.
+  async sumRawScoresByQuestion(round: Round, storeIds?: string[]): Promise<QuestionRawScoreSum[]> {
+    const groups = await this.prisma.score.groupBy({
+      by: ['questionId'],
+      where: { assessment: matrixWhere(round, storeIds) },
+      _sum: { rawScore: true },
+    });
+    return groups.map((group) => ({
+      questionId: group.questionId,
+      rawScore: group._sum.rawScore ?? 0,
+    }));
   }
 
   // Every downloadable report is a rendering of a submitted round, so the list of

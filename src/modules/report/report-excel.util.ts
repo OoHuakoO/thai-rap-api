@@ -1,6 +1,9 @@
-import { Workbook, type Worksheet } from 'exceljs';
+import type { Writable } from 'node:stream';
+import { Workbook, stream, type Row, type Worksheet } from 'exceljs';
 import { REPORT_ROUNDS } from './report.service';
-import type { OverviewReport, RoundMatrixReport, RoundReport } from './types/report.type';
+import type { OverviewReport, RoundMatrixExportSource, RoundReport } from './types/report.type';
+
+const { WorkbookWriter } = stream.xlsx;
 
 const HEADER_FILL_COLOR = 'FFF26B21';
 const HEADER_FONT_COLOR = 'FFFFFFFF';
@@ -55,9 +58,29 @@ const TEXT = {
 };
 
 function styleHeaderRow(sheet: Worksheet, rowNumber: number): void {
-  const row = sheet.getRow(rowNumber);
+  styleRow(sheet.getRow(rowNumber), 'header');
+}
+
+function styleRow(row: Row, style: 'header' | 'bold' | 'plain'): void {
+  if (style === 'plain') return;
+  if (style === 'bold') {
+    row.font = { bold: true };
+    return;
+  }
   row.font = { bold: true, color: { argb: HEADER_FONT_COLOR } };
   row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL_COLOR } };
+}
+
+// Streaming counterpart of addRow: a row must be styled and committed before
+// the next one is added, because committing is what flushes it to the response.
+function commitRow(
+  sheet: Worksheet,
+  cells: (string | number)[],
+  style: 'header' | 'bold' | 'plain' = 'plain',
+): void {
+  const row = sheet.addRow(cells);
+  styleRow(row, style);
+  row.commit();
 }
 
 function formatDate(value: Date | null): string {
@@ -194,43 +217,56 @@ function addQuestionSheet(workbook: Workbook, report: RoundReport): void {
   sheet.getColumn(5).numFmt = SCORE_FORMAT;
 }
 
-export async function buildRoundMatrixWorkbook(report: RoundMatrixReport): Promise<Buffer> {
-  const workbook = new Workbook();
+// Written through exceljs' streaming writer rather than the in-memory Workbook
+// the other two exports use: this is the only report whose row count grows with
+// the whole programme, so each row is committed to the response as it is read
+// and never joins a full-cohort array or a full-file Buffer.
+export async function streamRoundMatrixWorkbook(
+  source: RoundMatrixExportSource,
+  out: Writable,
+): Promise<void> {
+  const workbook = new WorkbookWriter({ stream: out, useStyles: true });
   const sheet = workbook.addWorksheet(MATRIX_SHEET_NAME);
+
+  // A committed row is already on the wire, so its number format can no longer
+  // be set from the column — the percentage columns declare it up front.
+  const scoreColumn = { width: 14, style: { numFmt: SCORE_FORMAT } };
   sheet.columns = [
     { width: 14 },
     { width: 30 },
     { width: 14 },
-    { width: 14 },
+    scoreColumn,
     { width: 12 },
-    { width: 14 },
-    { width: 18 },
+    scoreColumn,
+    { width: 18, style: { numFmt: SCORE_FORMAT } },
     { width: 10 },
     { width: 14 },
     { width: 24 },
-    ...report.dimensions.map(() => ({ width: 14 })),
+    ...source.dimensions.map(() => scoreColumn),
   ];
 
-  const headerRow = sheet.rowCount + 1;
-  sheet.addRow([
-    TEXT.storeCode,
-    TEXT.storeName,
-    TEXT.province,
-    TEXT.completion,
-    TEXT.rawScore,
-    TEXT.rawScorePct,
-    TEXT.weightedScore,
-    TEXT.redFlag,
-    TEXT.overallLevel,
-    TEXT.criticalDimension,
-    ...report.dimensions.map((dimension) =>
-      TEXT.dimensionShort(dimension.dimensionId, dimension.weight),
-    ),
-  ]);
-  styleHeaderRow(sheet, headerRow);
+  commitRow(
+    sheet,
+    [
+      TEXT.storeCode,
+      TEXT.storeName,
+      TEXT.province,
+      TEXT.completion,
+      TEXT.rawScore,
+      TEXT.rawScorePct,
+      TEXT.weightedScore,
+      TEXT.redFlag,
+      TEXT.overallLevel,
+      TEXT.criticalDimension,
+      ...source.dimensions.map((dimension) =>
+        TEXT.dimensionShort(dimension.dimensionId, dimension.weight),
+      ),
+    ],
+    'header',
+  );
 
-  for (const row of report.rows) {
-    sheet.addRow([
+  for await (const row of source.rows) {
+    commitRow(sheet, [
       row.storeCode,
       row.storeName,
       row.province,
@@ -244,47 +280,44 @@ export async function buildRoundMatrixWorkbook(report: RoundMatrixReport): Promi
       row.criticalDimensionId === null
         ? TEXT.noData
         : TEXT.dimensionNumber(row.criticalDimensionId),
-      ...report.dimensions.map((dimension) => row.scoresByDimension[dimension.dimensionId] ?? 0),
+      ...source.dimensions.map((dimension) => row.scoresByDimension[dimension.dimensionId] ?? 0),
     ]);
   }
 
-  const averageRow = sheet.addRow([
-    '',
-    TEXT.average,
-    '',
-    '',
-    '',
-    '',
-    report.averageWeightedScore ?? TEXT.noData,
-    '',
-    '',
-    '',
-    ...report.dimensions.map(
-      (dimension) => report.averageByDimension[dimension.dimensionId] ?? TEXT.noData,
-    ),
-  ]);
-  averageRow.font = { bold: true };
-
-  const percentColumns = [4, 6, 7, ...report.dimensions.map((_, index) => 11 + index)];
-  for (const column of percentColumns) {
-    sheet.getColumn(column).numFmt = SCORE_FORMAT;
-  }
+  commitRow(
+    sheet,
+    [
+      '',
+      TEXT.average,
+      '',
+      '',
+      '',
+      '',
+      source.averageWeightedScore ?? TEXT.noData,
+      '',
+      '',
+      '',
+      ...source.dimensions.map(
+        (dimension) => source.averageByDimension[dimension.dimensionId] ?? TEXT.noData,
+      ),
+    ],
+    'bold',
+  );
 
   // The dimension columns are headed "มิติ N" to keep the sheet readable, so the
   // full names have to appear somewhere — here, under the table.
-  sheet.addRow([]);
-  const legendHeaderRow = sheet.rowCount + 1;
-  sheet.addRow([TEXT.dimensionLegend, TEXT.dimension, TEXT.weight]);
-  styleHeaderRow(sheet, legendHeaderRow);
-  for (const dimension of report.dimensions) {
-    sheet.addRow([
+  commitRow(sheet, []);
+  commitRow(sheet, [TEXT.dimensionLegend, TEXT.dimension, TEXT.weight], 'header');
+  for (const dimension of source.dimensions) {
+    commitRow(sheet, [
       TEXT.dimensionNumber(dimension.dimensionId),
       dimension.dimensionName,
       dimension.weight,
     ]);
   }
 
-  return Buffer.from(await workbook.xlsx.writeBuffer());
+  sheet.commit();
+  await workbook.commit();
 }
 
 export async function buildOverviewReportWorkbook(report: OverviewReport): Promise<Buffer> {

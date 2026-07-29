@@ -9,6 +9,11 @@ import {
   isAdminRole,
   STORE_UNSPECIFIED_LABEL,
 } from '@constants/index';
+import {
+  buildPaginationMeta,
+  normalizePagination,
+  type PaginationParams,
+} from '@shared/pagination.util';
 import { resolveStoreScope } from '@shared/store-scope.util';
 import { DimensionService } from '@modules/assessment/dimension.service';
 import {
@@ -20,18 +25,11 @@ import {
 } from '@modules/assessment/assessment-scoring.util';
 import { StoreService } from '@modules/store/store.service';
 import { REPORT_FORMATS, type ReportFormat } from './dto/report-format.dto';
-import {
-  buildOverviewReportWorkbook,
-  buildRoundMatrixWorkbook,
-  buildRoundReportWorkbook,
-} from './report-excel.util';
-import {
-  buildOverviewReportPdf,
-  buildRoundMatrixPdf,
-  buildRoundReportPdf,
-} from './report-pdf.util';
+import { buildOverviewReportWorkbook, buildRoundReportWorkbook } from './report-excel.util';
+import { buildOverviewReportPdf, buildRoundReportPdf } from './report-pdf.util';
 import {
   ReportRepository,
+  type MatrixSlice,
   type RoundMatrixRowData,
   type RoundReportRow,
 } from './report.repository';
@@ -42,6 +40,8 @@ import type {
   ReportDimensionDetail,
   ReportDimensionScore,
   ReportStore,
+  RoundMatrixDimension,
+  RoundMatrixExportSource,
   RoundMatrixReport,
   RoundMatrixRow,
   RoundReport,
@@ -54,10 +54,26 @@ interface ScoringContext {
   maxScore: number;
 }
 
+interface MatrixContext {
+  round: Round;
+  /** null is "no narrowing"; an empty array is a caller who reaches no store. */
+  storeIds: string[] | null;
+  scoring: ScoringContext;
+}
+
 export const REPORT_ROUNDS: Round[] = [Round.T0, Round.T1, Round.T2, Round.T3];
 
 // The dashboard card shows a handful of rows and links to /reports for the rest.
 export const RECENT_REPORT_LIMIT = 5;
+
+// How many stores an export pulls per query. Big enough that a 400-store round
+// is a couple of round trips, small enough that the batch stays small next to
+// the rows already written out.
+const MATRIX_EXPORT_BATCH_SIZE = 200;
+
+function isEmptyScope(storeIds: string[] | null): boolean {
+  return storeIds !== null && storeIds.length === 0;
+}
 
 const REPORT_FORMAT_LABEL: Record<ReportFormat, AvailableReport['format']> = {
   xlsx: 'XLSX',
@@ -75,23 +91,6 @@ function round2(value: number): number {
 
 function percent(part: number, whole: number): number {
   return whole === 0 ? 0 : round2((part / whole) * 100);
-}
-
-function average(values: number[]): number | null {
-  if (values.length === 0) return null;
-  return round2(values.reduce((sum, value) => sum + value, 0) / values.length);
-}
-
-function averageByDimension(
-  rows: RoundMatrixRow[],
-  scoring: ScoringContext,
-): Record<number, number> {
-  const result: Record<number, number> = {};
-  for (const dimension of scoring.dimensions) {
-    const mean = average(rows.map((row) => row.scoresByDimension[dimension.info.id] ?? 0));
-    if (mean !== null) result[dimension.info.id] = mean;
-  }
-  return result;
 }
 
 function toScoredQuestions(row: {
@@ -212,51 +211,43 @@ export class ReportService {
   // only report that puts one store's scores in front of another store's
   // people, so it is ADMIN / SUPER_ADMIN only — narrower than the rest of
   // /reports, which answers all of ASSESSMENT_READ_ROLES.
-  async getRoundMatrixReport(round: Round, user: JwtPayload): Promise<RoundMatrixReport> {
-    if (!isAdminRole(user.role)) {
-      throw new ForbiddenException(
-        ERROR_CODES.PERM.FORBIDDEN,
-        'ไม่มีสิทธิ์ดูรายงานคะแนนรายมิติของทุกร้าน',
-      );
-    }
+  async getRoundMatrixReport(
+    round: Round,
+    user: JwtPayload,
+    pagination: PaginationParams = {},
+  ): Promise<RoundMatrixReport> {
+    const { storeIds, scoring } = await this.openMatrix(round, user);
+    const { skip, take, page, limit } = normalizePagination(pagination);
 
-    const [storeIds, scoring] = await Promise.all([
-      this.storeService.findAccessibleStoreIds(user),
-      this.loadScoring(),
+    const [total, data] = await Promise.all([
+      this.countMatrixStores(round, storeIds),
+      this.findMatrixSlice(round, storeIds, { skip, take }),
     ]);
-
-    // Admin roles are unscoped today, so this resolves to null. It stays because
-    // it is what keeps the query narrowed if the gate above ever widens — an
-    // empty scope must reach no store, while `undefined` reaches every one.
-    const data =
-      storeIds !== null && storeIds.length === 0
-        ? []
-        : await this.reportRepo.findSubmittedByRound(round, storeIds ?? undefined);
-
-    const rows = data.map((row) => this.toMatrixRow(row, scoring));
 
     return {
       round,
-      dimensions: scoring.dimensions.map((dimension) => ({
-        dimensionId: dimension.info.id,
-        dimensionName: dimension.name,
-        weight: dimension.info.weight,
-      })),
-      rows,
-      averageByDimension: averageByDimension(rows, scoring),
-      averageWeightedScore: average(
-        rows.map((row) => row.weightedScore).filter((score): score is number => score !== null),
-      ),
+      dimensions: this.toMatrixDimensions(scoring),
+      rows: data.map((row) => this.toMatrixRow(row, scoring)),
+      ...(await this.cohortAverages(round, storeIds, scoring, total)),
+      meta: buildPaginationMeta(total, page, limit),
     };
   }
 
-  async exportRoundMatrixReport(
-    round: Round,
-    format: ReportFormat,
-    user: JwtPayload,
-  ): Promise<Buffer> {
-    const report = await this.getRoundMatrixReport(round, user);
-    return format === 'pdf' ? buildRoundMatrixPdf(report) : buildRoundMatrixWorkbook(report);
+  // The download is the whole round, not the page the table happens to be on —
+  // filtering an export to the visible rows would hand back a file nobody can
+  // work from. Nothing is read here beyond the access check and the cohort
+  // aggregate, so a 403 still lands before a byte of the file is written.
+  async openRoundMatrixExport(round: Round, user: JwtPayload): Promise<RoundMatrixExportSource> {
+    const { storeIds, scoring } = await this.openMatrix(round, user);
+    const storeCount = await this.countMatrixStores(round, storeIds);
+
+    return {
+      round,
+      dimensions: this.toMatrixDimensions(scoring),
+      storeCount,
+      ...(await this.cohortAverages(round, storeIds, scoring, storeCount)),
+      rows: this.iterateMatrixRows(round, storeIds, scoring),
+    };
   }
 
   async exportRoundReport(
@@ -334,6 +325,103 @@ export class ReportService {
     return reports
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .slice(0, RECENT_REPORT_LIMIT);
+  }
+
+  private async openMatrix(round: Round, user: JwtPayload): Promise<MatrixContext> {
+    if (!isAdminRole(user.role)) {
+      throw new ForbiddenException(
+        ERROR_CODES.PERM.FORBIDDEN,
+        'ไม่มีสิทธิ์ดูรายงานคะแนนรายมิติของทุกร้าน',
+      );
+    }
+
+    // Admin roles are unscoped today, so this resolves to null. It stays because
+    // it is what keeps the query narrowed if the gate above ever widens — an
+    // empty scope must reach no store, while `undefined` reaches every one.
+    const [storeIds, scoring] = await Promise.all([
+      this.storeService.findAccessibleStoreIds(user),
+      this.loadScoring(),
+    ]);
+    return { round, storeIds, scoring };
+  }
+
+  private countMatrixStores(round: Round, storeIds: string[] | null): Promise<number> {
+    if (isEmptyScope(storeIds)) return Promise.resolve(0);
+    return this.reportRepo.countSubmittedByRound(round, storeIds ?? undefined);
+  }
+
+  private findMatrixSlice(
+    round: Round,
+    storeIds: string[] | null,
+    slice: MatrixSlice,
+  ): Promise<RoundMatrixRowData[]> {
+    if (isEmptyScope(storeIds)) return Promise.resolve([]);
+    return this.reportRepo.findSubmittedByRound(round, storeIds ?? undefined, slice);
+  }
+
+  // Averaged over the whole round rather than the rows in hand, so the ค่าเฉลี่ย
+  // line means the same thing on page 1 and page 9 — and so the number survives
+  // an export that never holds every row at once. Summing the raw scores in the
+  // database gives the same value as averaging the stores' percentages, because
+  // every store is scored out of the same maxTotal.
+  private async cohortAverages(
+    round: Round,
+    storeIds: string[] | null,
+    scoring: ScoringContext,
+    storeCount: number,
+  ): Promise<Pick<RoundMatrixReport, 'averageByDimension' | 'averageWeightedScore'>> {
+    if (storeCount === 0) return { averageByDimension: {}, averageWeightedScore: null };
+
+    const sums = await this.reportRepo.sumRawScoresByQuestion(round, storeIds ?? undefined);
+    const dimensionOfQuestion = new Map(
+      scoring.questions.map((question) => [question.id, question.dimensionId]),
+    );
+
+    const rawByDimension = new Map<number, number>();
+    for (const sum of sums) {
+      const dimensionId = dimensionOfQuestion.get(sum.questionId);
+      if (dimensionId === undefined) continue;
+      rawByDimension.set(dimensionId, (rawByDimension.get(dimensionId) ?? 0) + sum.rawScore);
+    }
+
+    const averageByDimension: Record<number, number> = {};
+    let weighted = 0;
+    for (const { info } of scoring.dimensions) {
+      const full = storeCount * info.maxTotal;
+      const mean = full === 0 ? 0 : ((rawByDimension.get(info.id) ?? 0) / full) * 100;
+      averageByDimension[info.id] = round2(mean);
+      weighted += (mean * info.weight) / 100;
+    }
+
+    return { averageByDimension, averageWeightedScore: round2(weighted) };
+  }
+
+  // Read in batches and yielded one at a time: an export of a cohort in the
+  // thousands must not put every store's 50 scores in memory at once, and the
+  // writers consume a row and forget it.
+  private async *iterateMatrixRows(
+    round: Round,
+    storeIds: string[] | null,
+    scoring: ScoringContext,
+  ): AsyncGenerator<RoundMatrixRow> {
+    if (isEmptyScope(storeIds)) return;
+
+    for (let skip = 0; ; skip += MATRIX_EXPORT_BATCH_SIZE) {
+      const batch = await this.reportRepo.findSubmittedByRound(round, storeIds ?? undefined, {
+        skip,
+        take: MATRIX_EXPORT_BATCH_SIZE,
+      });
+      for (const row of batch) yield this.toMatrixRow(row, scoring);
+      if (batch.length < MATRIX_EXPORT_BATCH_SIZE) return;
+    }
+  }
+
+  private toMatrixDimensions(scoring: ScoringContext): RoundMatrixDimension[] {
+    return scoring.dimensions.map((dimension) => ({
+      dimensionId: dimension.info.id,
+      dimensionName: dimension.name,
+      weight: dimension.info.weight,
+    }));
   }
 
   // Every report — round, overview, and both Excel/PDF exports — enters through

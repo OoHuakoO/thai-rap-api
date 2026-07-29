@@ -1,7 +1,8 @@
 import { join } from 'node:path';
+import type { Writable } from 'node:stream';
 import PDFDocument from 'pdfkit';
 import { REPORT_ROUNDS } from './report.service';
-import type { OverviewReport, RoundMatrixReport, RoundReport } from './types/report.type';
+import type { OverviewReport, RoundMatrixExportSource, RoundReport } from './types/report.type';
 
 // PDFKit's built-in fonts have no Thai glyphs — every label in these reports is
 // Thai, so the bundled Sarabun (OFL, assets/fonts/) is registered instead.
@@ -86,6 +87,19 @@ function toBuffer(doc: Doc): Promise<Buffer> {
     doc.on('error', reject);
     doc.end();
   });
+}
+
+// Resolves once the document has been fully written out, so the caller does not
+// return — and Nest does not consider the request handled — mid-file. The
+// promise is created before any drawing so no early chunk is missed.
+function pipeToStream(doc: Doc, out: Writable): Promise<void> {
+  const finished = new Promise<void>((resolve, reject) => {
+    doc.on('end', resolve);
+    doc.on('error', reject);
+    out.on('error', reject);
+  });
+  doc.pipe(out);
+  return finished;
 }
 
 function title(doc: Doc, text: string): void {
@@ -293,16 +307,26 @@ export function buildRoundReportPdf(report: RoundReport): Promise<Buffer> {
 
 // Landscape: eight dimension columns plus the summary ones do not fit the
 // portrait width the other two reports use.
-export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> {
+//
+// Piped straight to the response instead of collected with toBuffer(): this is
+// the only report whose length grows with the whole programme, and its rows
+// arrive from the database in batches, so pages are written out as they are
+// drawn rather than held until the last store is read.
+export async function streamRoundMatrixPdf(
+  source: RoundMatrixExportSource,
+  out: Writable,
+): Promise<void> {
   const doc = createDoc('landscape');
+  const finished = pipeToStream(doc, out);
   const contentWidth = doc.page.width - PAGE_MARGIN * 2;
 
-  title(doc, TEXT.matrixTitle(report.round));
-  doc.text(TEXT.storeCount(report.rows.length));
+  title(doc, TEXT.matrixTitle(source.round));
+  doc.text(TEXT.storeCount(source.storeCount));
 
-  if (report.rows.length === 0) {
+  if (source.storeCount === 0) {
     doc.text(TEXT.noStore);
-    return toBuffer(doc);
+    doc.end();
+    return finished;
   }
 
   // Thai has no spaces to break on, so a header wider than its column is split
@@ -318,8 +342,8 @@ export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> 
   const weightedWidth = contentWidth * 0.123;
   const dimensionWidth =
     (contentWidth - fixedWidths.reduce((sum, width) => sum + width, 0) - weightedWidth) /
-    report.dimensions.length;
-  const widths = [...fixedWidths, ...report.dimensions.map(() => dimensionWidth), weightedWidth];
+    source.dimensions.length;
+  const widths = [...fixedWidths, ...source.dimensions.map(() => dimensionWidth), weightedWidth];
 
   gridRow(
     doc,
@@ -328,7 +352,7 @@ export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> 
       TEXT.storeName,
       TEXT.overallLevel,
       TEXT.completion,
-      ...report.dimensions.map((dimension) =>
+      ...source.dimensions.map((dimension) =>
         TEXT.dimensionShort(dimension.dimensionId, dimension.weight),
       ),
       TEXT.weightedScore,
@@ -337,7 +361,7 @@ export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> 
     true,
   );
 
-  for (const row of report.rows) {
+  for await (const row of source.rows) {
     gridRow(
       doc,
       [
@@ -345,7 +369,7 @@ export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> 
         row.storeName,
         row.overallLevel,
         row.completionPct.toFixed(0),
-        ...report.dimensions.map((dimension) =>
+        ...source.dimensions.map((dimension) =>
           (row.scoresByDimension[dimension.dimensionId] ?? 0).toFixed(1),
         ),
         formatScore(row.weightedScore),
@@ -361,11 +385,11 @@ export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> 
       TEXT.average,
       '',
       '',
-      ...report.dimensions.map((dimension) => {
-        const mean = report.averageByDimension[dimension.dimensionId];
+      ...source.dimensions.map((dimension) => {
+        const mean = source.averageByDimension[dimension.dimensionId];
         return mean === undefined ? TEXT.noData : mean.toFixed(1);
       }),
-      formatScore(report.averageWeightedScore),
+      formatScore(source.averageWeightedScore),
     ],
     widths,
     true,
@@ -375,7 +399,7 @@ export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> 
   // names have to be reachable from the same document.
   heading(doc, TEXT.dimensionLegend);
   const legendWidths = [contentWidth * 0.12, contentWidth * 0.6, contentWidth * 0.12];
-  for (const dimension of report.dimensions) {
+  for (const dimension of source.dimensions) {
     gridRow(
       doc,
       [
@@ -387,7 +411,8 @@ export function buildRoundMatrixPdf(report: RoundMatrixReport): Promise<Buffer> 
     );
   }
 
-  return toBuffer(doc);
+  doc.end();
+  return finished;
 }
 
 export function buildOverviewReportPdf(report: OverviewReport): Promise<Buffer> {

@@ -17,17 +17,15 @@ export function normalizePagination(params: PaginationParams): {
   return { skip, take: limit, page, limit };
 }
 
+export function buildPaginationMeta(total: number, page: number, limit: number): PaginationMeta {
+  return { page, limit, total, totalPages: Math.ceil(total / limit) };
+}
+
 export function buildPaginatedResult<T>(
   items: T[],
   total: number,
   page: number,
   limit: number,
 ): PaginatedResult<T> {
-  const meta: PaginationMeta = {
-    page,
-    limit,
-    total,
-    totalPages: Math.ceil(total / limit),
-  };
-  return { items, meta };
+  return { items, meta: buildPaginationMeta(total, page, limit) };
 }

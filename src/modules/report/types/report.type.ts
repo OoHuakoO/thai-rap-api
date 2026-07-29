@@ -1,4 +1,5 @@
 import type { RedFlagType, Round, Severity } from '@prisma/client';
+import type { PaginationMeta } from '@common/types/api-response.type';
 
 export interface ReportStore {
   id: string;
@@ -123,10 +124,29 @@ export interface RoundMatrixRow {
 export interface RoundMatrixReport {
   round: Round;
   dimensions: RoundMatrixDimension[];
+  /** One page of stores — `meta.total` is how many the round has in all. */
   rows: RoundMatrixRow[];
-  /** Cohort mean per dimension, over the rows above. */
+  /**
+   * Cohort means over every store in the round, never only the page — a mean
+   * that moved as the reader paged would not be the cohort's.
+   */
   averageByDimension: Record<number, number>;
   averageWeightedScore: number | null;
+  meta: PaginationMeta;
+}
+
+/**
+ * The same matrix as a download: every store in the round, handed to the writer
+ * one row at a time so the file can be produced without the cohort ever being
+ * one array in memory. `rows` is read once — it is a stream, not a collection.
+ */
+export interface RoundMatrixExportSource {
+  round: Round;
+  dimensions: RoundMatrixDimension[];
+  storeCount: number;
+  averageByDimension: Record<number, number>;
+  averageWeightedScore: number | null;
+  rows: AsyncIterable<RoundMatrixRow>;
 }
 
 /**

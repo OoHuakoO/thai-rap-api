@@ -60,6 +60,32 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   `useRoundMatrix`, `RoundMatrixPanel`, gated in the UI by `REPORT_DETAIL_ROLES`;
   the **MSW handler mirrors the 403** (`mocks/handlers/report.handlers.test.ts`),
   unlike the other report handlers, which stay unscoped.
+- **`GET /reports/rounds/:round/stores` is paged; `/export` is not.** The read
+  takes `page`/`limit` (`PaginationDto`, default 10 / max 100) and answers
+  `{ round, dimensions, rows, averageByDimension, averageWeightedScore, meta }`
+  — `rows` is one page, `meta.total` is the round. The **export deliberately
+  takes no page**: a file cut to the rows on screen would have to be stitched
+  back together by hand, so it always carries every store the caller may read.
+  The web says so next to the buttons (`REPORT_TEXT.matrixDownloadHint`) and
+  `reportService.exportRoundMatrix` sends `format` and nothing else.
+  Two consequences worth knowing:
+  - The **averages are the round's, not the page's** — paging must not move
+    them. They come from `ReportRepository.sumRawScoresByQuestion` (a
+    `score.groupBy` in the database) rather than from the rows in hand, because
+    the mean of the stores' dimension percentages is exactly Σ rawScore /
+    (store count × `maxTotal`). `averageWeightedScore` is now derived from
+    those percentages instead of averaging the stored `Assessment.totalScore`;
+    the two agree unless dimension weights changed after a round was submitted
+    (see `seed-data.md` §Changing Weights), and this way the ค่าเฉลี่ย line is
+    consistent with the dimension columns, which were always computed live.
+  - The **export streams**. `ReportService.openRoundMatrixExport()` returns a
+    `RoundMatrixExportSource` whose `rows` is an `AsyncIterable` read from the
+    database in batches of 200, and the controller pipes
+    `streamRoundMatrixWorkbook` / `streamRoundMatrixPdf` straight into the
+    response — no full-cohort array, no whole-file `Buffer`. Access is checked
+    and the cohort counted *before* any header is set, so a 403 still leaves as
+    JSON. The other two exports (single round, overview) are one store each and
+    stay on the in-memory `buildXxx` path.
 - `GET /reports/stores/:storeId/rounds/:round` gained the per-question
   breakdown, mirroring `docs/…02_ประเมิน50ร้าน.csv`: `rawScore`, `maxScore`,
   `rawScorePct`, `completionPct` on the report, and `rawScore` / `maxScore` /
