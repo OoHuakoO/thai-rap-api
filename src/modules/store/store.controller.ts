@@ -44,7 +44,8 @@ export class StoreController {
 
   @Get()
   @ApiOperation({
-    summary: 'List stores (paginated, filterable; ENTREPRENEUR only sees their own)',
+    summary:
+      'List stores (paginated, filterable; ENTREPRENEUR sees only the stores it owns, ASSESSOR only its assignments)',
   })
   findAll(@Query() query: QueryStoreDto, @CurrentUser() user: JwtPayload) {
     return this.storeService.findAll(query, user);
@@ -59,7 +60,7 @@ export class StoreController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a store by id' })
+  @ApiOperation({ summary: 'Get a store by id (ENTREPRENEUR only for a store it owns)' })
   findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.storeService.findOne(id, user);
   }

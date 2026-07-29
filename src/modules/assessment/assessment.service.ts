@@ -513,8 +513,8 @@ export class AssessmentService {
   // somewhere to type.
   private static readonly WRITE_ROLES: string[] = [Role.ASSESSOR];
 
-  // Every read path lands here. StoreService.findOne only ever narrows an
-  // ENTREPRENEUR to its own store, so without this gate any authenticated
+  // Every read path lands here. StoreService.findAccessible only ever narrows an
+  // ENTREPRENEUR to its own stores, so without this gate any authenticated
   // account — including a self-registered VIEWER — reads every store's scores.
   private assertCanRead(user: JwtPayload): void {
     if (!canReadAssessment(user.role)) {

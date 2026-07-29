@@ -118,12 +118,26 @@ async getStore(id: string, user: JwtPayload): Promise<Store> {
 
 Store access rules:
 
-- **ENTREPRENEUR** reads and manages only the store they own (`store.ownerId === user.sub`).
-- **ASSESSOR and other staff roles** read every store — do NOT gate store reads on
-  `Store.assignedUsers`. That relation is not a read filter; it gates assessment
-  **writes** only, through `AssessmentService.assertAssignedToStore` — an
-  ASSESSOR may score a store only if a SUPER_ADMIN assigned it
-  (`PATCH /users/:id/assigned-stores`). Admin roles bypass that check.
+- **ENTREPRENEUR** reads and manages only the stores they own
+  (`store.ownerId === user.sub`) — `GET /stores` lists those and nothing else,
+  and `GET /stores/:id` on another owner's store 403s rather than returning a
+  stripped record. Ownership comes from `PATCH /users/:id/owned-stores` when an
+  admin registered the store on their behalf.
+- **ASSESSOR** sees only its assignment list in `GET /stores`
+  (`StoreService.findAll` passes `{ assignedToId: user.sub }`) — the scoring
+  page's store picker reads that list, so a store it may not score never
+  appears there. Assignment is a SUPER_ADMIN act
+  (`PATCH /users/:id/assigned-stores`); an assessor with none gets an empty
+  directory, which is the intended state. Scoring is separately gated by
+  `AssessmentService.assertAssignedToStore`; admin roles bypass both.
+- A narrowed role is narrowed on **single-store reads too** —
+  `StoreService.assertVisible` is the mirror of `listScope` and runs in both
+  `findOne` and `findAccessible`, so an id left out of the list cannot be
+  reached by guessing it. For ASSESSOR that means assessment, report and
+  analytics reads of an unassigned store all 403, not just the scoring page.
+  Add a role to one of the two and you must add it to the other.
+- **MENTOR / JUDGE / ME_TEAM / VIEWER** read every store; `Store.assignedUsers`
+  is not a filter for them (nothing assigns stores to those roles).
 - Store aggregate stats (`GET /stores/stats`) are limited to **ADMIN and
   ENTREPRENEUR only** — matches the roles that can open the web `/stores` page
   (`ROUTE_PERMISSIONS` in the web repo). ASSESSOR/MENTOR/JUDGE/ME_TEAM get 403

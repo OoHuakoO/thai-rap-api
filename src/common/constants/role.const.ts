@@ -13,7 +13,7 @@ export function isAdminRole(role: string): boolean {
 
 // Who may read assessment results at all — scores, per-question notes, evidence,
 // round history, ranking and the reports built on them. ENTREPRENEUR is in the
-// list because StoreService.findOne narrows it to the store it owns; every other
+// list because StoreService.findAccessible narrows it to the stores it owns; every other
 // entry reads every store.
 //
 // JUDGE and VIEWER are deliberately absent. A JUDGE scores pitching, not the

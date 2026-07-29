@@ -13,6 +13,13 @@ import type { LatestAssessmentInfo } from './types/store-result.type';
 
 export type PhotoField = 'menuPhotos' | 'storePhotos';
 
+// Who the directory is being listed *for*. `ownerId` is the ENTREPRENEUR's own
+// store; `assignedToId` is the assessor's assignment list (Store.assignedUsers).
+export interface StoreListScope {
+  ownerId?: string;
+  assignedToId?: string;
+}
+
 const STORE_SELECT = {
   id: true,
   code: true,
@@ -41,7 +48,7 @@ const STORE_SELECT = {
 export class StoreRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private buildWhere(query: QueryStoreDto, ownerId?: string): Prisma.StoreWhereInput {
+  private buildWhere(query: QueryStoreDto, scope?: StoreListScope): Prisma.StoreWhereInput {
     const where: Prisma.StoreWhereInput = {};
     if (query.search) {
       where.OR = [
@@ -54,13 +61,19 @@ export class StoreRepository {
     if (query.province) where.province = query.province;
     if (query.storeType) where.storeType = query.storeType;
     if (query.status) where.status = query.status;
-    if (ownerId) where.ownerId = ownerId;
+    if (scope?.ownerId) where.ownerId = scope.ownerId;
+    if (scope?.assignedToId) where.assignedUsers = { some: { id: scope.assignedToId } };
     return where;
   }
 
-  findAll(query: QueryStoreDto, skip: number, take: number, ownerId?: string): Promise<Store[]> {
+  findAll(
+    query: QueryStoreDto,
+    skip: number,
+    take: number,
+    scope?: StoreListScope,
+  ): Promise<Store[]> {
     return this.prisma.store.findMany({
-      where: this.buildWhere(query, ownerId),
+      where: this.buildWhere(query, scope),
       select: STORE_SELECT,
       skip,
       take,
@@ -68,8 +81,15 @@ export class StoreRepository {
     });
   }
 
-  count(query: QueryStoreDto, ownerId?: string): Promise<number> {
-    return this.prisma.store.count({ where: this.buildWhere(query, ownerId) });
+  count(query: QueryStoreDto, scope?: StoreListScope): Promise<number> {
+    return this.prisma.store.count({ where: this.buildWhere(query, scope) });
+  }
+
+  async isAssignedTo(storeId: string, userId: string): Promise<boolean> {
+    const count = await this.prisma.store.count({
+      where: { id: storeId, assignedUsers: { some: { id: userId } } },
+    });
+    return count > 0;
   }
 
   findById(id: string): Promise<(Store & { documents: StoreDocument[] }) | null> {

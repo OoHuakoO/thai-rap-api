@@ -102,20 +102,34 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 - `GET /stores/stats` is staff-only (403 `PERM_001` for ENTREPRENEUR). Web
   `useStoreStats` (`features/store/hooks/use-stores.ts`) calls it for every
   role; entrepreneur degrades to a hidden stats bar and empty filter dropdowns.
-- `GET /stores` and `GET /stores/:id` are **not** ownership-scoped: every signed-in
-  role browses the whole directory, ENTREPRENEUR included. A store an admin
-  registers carries no `ownerId`, so scoping the list to the caller left a
-  freshly-onboarded entrepreneur with nothing. Managing is still owner-only
-  (`assertCanManage`), and so is assessment/report access — those go through
-  `StoreService.findAccessible()`, which keeps the ownership throw that
-  `findOne()` no longer has. The web mirrors this by gating the row actions in
-  `features/store/components/store-list.tsx` on `store.ownerId`, which is why
-  `ownerId` is part of the web `Store` type.
+- `GET /stores` is narrowed to `Store.assignedUsers` for **ASSESSOR** — it lists
+  only the stores a SUPER_ADMIN assigned to that account, so the web's
+  `useStores` callers (assessment store picker, `/assessment` entry redirect,
+  reports and analytics pickers) show that list and nothing else. An assessor
+  with no assignments gets `items: []` and the web falls through to
+  `EMPTY_STORE_MESSAGE` — not an error. `GET /stores/:id` 403s `PERM_001` on an
+  unassigned store too, and because every assessment, report and analytics read
+  runs through `StoreService.findAccessible()`, an assessor gets that same 403
+  from `/assessments*`, `/reports/*` (exports included) and `/analytics/*` for a
+  store it was not assigned — it works only inside its own list. Every other
+  role is unaffected. MSW mocks are not role-aware.
+- `GET /stores` is **ownership-scoped for ENTREPRENEUR** — it lists only the
+  stores whose `ownerId` is the caller, and `GET /stores/:id` 403s `PERM_001`
+  on any other store ("ผู้ประกอบการจะไม่สามารถเห็นข้อมูลของร้านอื่น", แบบ 50 ข้อ §3.2).
+  This reverses the earlier shared-directory behaviour: an admin-registered
+  store used to carry no `ownerId`, but a SUPER_ADMIN now hands it over with
+  `PATCH /users/:id/owned-stores`, so ownership is a usable filter again.
+  `findOne()` and `findAccessible()` therefore agree for this role.
+  The web still gates the row actions in
+  `features/store/components/store-list.tsx` on `store.ownerId` as a second
+  check, which is why `ownerId` stays part of the web `Store` type. The MSW
+  store handlers are not ownership-aware — in mock mode an entrepreneur still
+  sees every store. `GET /stores/stats` stays project-wide for every role that
+  may call it: it is an aggregate over the whole programme, not a store list.
 - **`GET /stores` and `GET /stores/:id` return a narrowed object** —
   `PublicStoreResult` (id, ownerId, name, province, storeType, socialLinks,
   goals, menuPhotos, coverUrl, storePhotos, status) instead of `StoreResult` —
-  to a VIEWER on every store, and to an ENTREPRENEUR on a store it does not
-  own ("ผู้ประกอบการจะไม่สามารถเห็นข้อมูลของร้านอื่น", แบบ 50 ข้อ §3.2). Contact
+  to a VIEWER on every store. Contact
   details, revenue, `mainProblems`, `documents` and every score key are
   **absent, not blanked** — a client that indexes into them without a guard
   throws (see the `store.documents ?? []` in the web's `store-detail.tsx`).

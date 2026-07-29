@@ -109,6 +109,7 @@ describe('StoreService', () => {
             removePhoto: jest.fn(),
             findDistinctStoreTypes: jest.fn(),
             findIdByCode: jest.fn().mockResolvedValue(null),
+            isAssignedTo: jest.fn().mockResolvedValue(true),
           },
         },
         {
@@ -140,6 +141,20 @@ describe('StoreService', () => {
       expect(repository.findAll).toHaveBeenCalledWith({}, 0, 10, undefined);
     });
 
+    // The picker on the scoring page reads this list, so an unassigned store
+    // must not even appear there — an assessor cannot score it anyway.
+    it('should narrow the list to the assignment list for ASSESSOR', async () => {
+      repository.findAll.mockResolvedValue([]);
+      repository.count.mockResolvedValue(0);
+
+      await service.findAll({}, assessor);
+
+      expect(repository.findAll).toHaveBeenCalledWith({}, 0, 10, {
+        assignedToId: 'assessor-1',
+      });
+      expect(repository.count).toHaveBeenCalledWith({}, { assignedToId: 'assessor-1' });
+    });
+
     it('should narrow every row to the disclosable fields for VIEWER', async () => {
       repository.findAll.mockResolvedValue([mockStore]);
       repository.count.mockResolvedValue(1);
@@ -152,31 +167,25 @@ describe('StoreService', () => {
       expect(result.items[0]).toMatchObject({ id: 'store-1', name: 'ร้านทดสอบ' });
     });
 
-    // A store an admin registered carries no ownerId, so scoping this list to
-    // the caller left a freshly-onboarded entrepreneur with an empty directory.
-    it('should list every store for ENTREPRENEUR, not only the owned ones', async () => {
+    // An admin may register the store, but it reaches the entrepreneur through
+    // PATCH /users/:id/owned-stores — so ownership is what the list filters on.
+    it('should narrow the list to the owned stores for ENTREPRENEUR', async () => {
       repository.findAll.mockResolvedValue([]);
       repository.count.mockResolvedValue(0);
 
       await service.findAll({}, owner);
 
-      expect(repository.findAll).toHaveBeenCalledWith({}, 0, 10, undefined);
-      expect(repository.count).toHaveBeenCalledWith({}, undefined);
+      expect(repository.findAll).toHaveBeenCalledWith({}, 0, 10, { ownerId: 'owner-1' });
+      expect(repository.count).toHaveBeenCalledWith({}, { ownerId: 'owner-1' });
     });
 
-    // Shared directory, private records: the row for someone else's store comes
-    // back stripped, the entrepreneur's own row does not.
-    it('should strip the rows an ENTREPRENEUR does not own', async () => {
-      repository.findAll.mockResolvedValue([
-        mockStore,
-        { ...mockStore, id: 'store-2', ownerId: 'owner-9' },
-      ]);
-      repository.count.mockResolvedValue(2);
+    it('should return the full record for the rows an ENTREPRENEUR owns', async () => {
+      repository.findAll.mockResolvedValue([mockStore]);
+      repository.count.mockResolvedValue(1);
 
       const result = await service.findAll({}, owner);
 
       expect(result.items[0]).toMatchObject({ id: 'store-1', phone: '0812345678' });
-      expect(result.items[1]).not.toHaveProperty('phone');
     });
   });
 
@@ -236,14 +245,13 @@ describe('StoreService', () => {
       await expect(service.findOne('missing', admin)).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    // Browsing is open to every role; being entitled to the store's assessment
-    // is not — that split is findOne vs findAccessible.
-    it('should let ENTREPRENEUR open a store it does not own', async () => {
+    // The row is not in its list, so a direct link must not render it either.
+    it('should refuse an ENTREPRENEUR a store it does not own', async () => {
       repository.findById.mockResolvedValue(mockStore);
 
-      const result = await service.findOne('store-1', otherOwner);
-
-      expect(result.id).toBe('store-1');
+      await expect(service.findOne('store-1', otherOwner)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
     });
 
     it('should still refuse findAccessible to an ENTREPRENEUR who does not own the store', async () => {
@@ -254,12 +262,35 @@ describe('StoreService', () => {
       );
     });
 
-    it('should allow ASSESSOR to read any store', async () => {
+    it('should allow ASSESSOR a store on its assignment list', async () => {
       repository.findById.mockResolvedValue(mockStore);
+      repository.isAssignedTo.mockResolvedValue(true);
 
       const result = await service.findOne('store-1', assessor);
 
       expect(result.id).toBe('store-1');
+      expect(repository.isAssignedTo).toHaveBeenCalledWith('store-1', 'assessor-1');
+    });
+
+    // Guessing an id is the way around a filtered list, so the same narrowing
+    // has to hold on the single-store reads — findAccessible included, which is
+    // what every assessment, report and analytics read goes through.
+    it('should refuse an ASSESSOR a store it was not assigned', async () => {
+      repository.findById.mockResolvedValue(mockStore);
+      repository.isAssignedTo.mockResolvedValue(false);
+
+      await expect(service.findOne('store-1', assessor)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.findAccessible('store-1', assessor)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+    });
+
+    it('should not query the assignment list for a role that browses everything', async () => {
+      repository.findById.mockResolvedValue(mockStore);
+
+      await service.findAccessible('store-1', admin);
+
+      expect(repository.isAssignedTo).not.toHaveBeenCalled();
     });
 
     // ผู้ใช้ทั่วไป is self-registerable and ACTIVE at once, so anything left in
@@ -286,20 +317,6 @@ describe('StoreService', () => {
           'storeType',
         ].sort(),
       );
-    });
-
-    // "ผู้ประกอบการจะไม่สามารถเห็นข้อมูลของร้านอื่น" (แบบ 50 ข้อ §3.2). It still
-    // opens the row — the directory is shared — but not what is inside it.
-    it('should hide another store private fields from an ENTREPRENEUR', async () => {
-      repository.findById.mockResolvedValue({ ...mockStore, documents: [mockDocument] });
-
-      const result = await service.findOne('store-1', otherOwner);
-
-      expect(result).not.toHaveProperty('phone');
-      expect(result).not.toHaveProperty('avgRevenueMin');
-      expect(result).not.toHaveProperty('documents');
-      expect(result).not.toHaveProperty('latestScore');
-      expect(result).toMatchObject({ id: 'store-1', name: 'ร้านทดสอบ' });
     });
 
     it('should return the full record to the ENTREPRENEUR that owns the store', async () => {
