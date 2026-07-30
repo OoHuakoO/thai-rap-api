@@ -274,9 +274,11 @@ There is no `status` field in the request body — `UpdateScoreDto` doesn't defi
 ```
 This is a single question object in the same shape as one entry of `GET /assessments/:id`'s `questions` array — not `{ id, assessmentId, ... }`.
 
+**Editing a finished round:** ADMIN / SUPER_ADMIN may score a `SUBMITTED`/`APPROVED` assessment — the content reopens, the round does not. On every such write the service re-runs the submit formula and rewrites the frozen `totalScore`, and reconciles the red flags by type (a flag that still triggers keeps its `resolved`; one that no longer triggers is deleted). `status`, `submittedAt`, `assessorId` and `Store.status` are untouched, so an admin correction never re-credits the round to the admin. ASSESSOR still gets `400 ASSESS_004`. `PATCH /:id/draft` and `POST /:id/submit` keep the strict gate for every role.
+
 **Errors**
 - `422 VALID_002` — `rawScore` outside 0–4 (rejected by class-validator before reaching the service; the catalog defines `ASSESS_006`/`SCORE_OUT_OF_RANGE` for this but it is never actually thrown)
-- `400 ASSESS_004` — Cannot edit a submitted assessment
+- `400 ASSESS_004` — Cannot edit a submitted assessment (non-admin roles only)
 - `404 ASSESS_007` — Question not found
 - `404 ASSESS_001` — Assessment not found
 
@@ -332,7 +334,7 @@ There is no `pending` field (compute as `total - scored` client-side) and no `by
 ### POST /assessments/:id/scores/:questionId/evidence
 Upload an evidence file for a question that already has a score. Path is singular `evidence`, not nested `scores/:questionId/evidences` as in earlier drafts.
 
-**Access:** ADMIN, ASSESSOR — entrepreneurs cannot upload evidence (write access to the assessment module is ADMIN/ASSESSOR-only, see Access note on `POST /assessments`).
+**Access:** ADMIN, ASSESSOR — entrepreneurs cannot upload evidence (write access to the assessment module is ADMIN/ASSESSOR-only, see Access note on `POST /assessments`). On a `SUBMITTED`/`APPROVED` round the same admin-only rule as `PUT .../scores/:questionId` applies — evidence and notes are content writes, so ADMIN / SUPER_ADMIN may still add or remove them and an ASSESSOR gets `400 ASSESS_004`.
 
 **Content-Type:** `multipart/form-data`
 

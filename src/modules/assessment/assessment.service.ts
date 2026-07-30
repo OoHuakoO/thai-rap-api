@@ -241,7 +241,7 @@ export class AssessmentService {
     user: JwtPayload,
   ): Promise<AssessmentQuestionResult> {
     this.assertCanWrite(user);
-    await this.assertDraftOrInProgress(assessmentId, user);
+    const assessment = await this.assertEditable(assessmentId, user);
 
     const question = await this.dimensionService.findQuestionById(questionId);
     if (!question) {
@@ -250,7 +250,15 @@ export class AssessmentService {
     this.assertScoreWithinMax(dto.rawScore, question);
 
     const score = await this.assessmentRepo.upsertScore(assessmentId, questionId, dto);
-    await this.assessmentRepo.reassignAssessor(assessmentId, user.sub);
+    if (isCompleted(assessment.status)) {
+      // An admin correcting a finished round doesn't take it over — the round
+      // keeps the assessor who did it. The frozen totalScore and red flags are
+      // another matter: leave them and ranking, reports and the zone all keep
+      // serving the answer that was just replaced.
+      await this.rescore(assessmentId);
+    } else {
+      await this.assessmentRepo.reassignAssessor(assessmentId, user.sub);
+    }
     return {
       questionId: question.id,
       questionNo: question.questionNo,
@@ -271,7 +279,7 @@ export class AssessmentService {
     user: JwtPayload,
   ): Promise<EvidenceResult> {
     this.assertCanWrite(user);
-    await this.assertDraftOrInProgress(assessmentId, user);
+    await this.assertEditable(assessmentId, user);
 
     const score = await this.assessmentRepo.findScore(assessmentId, questionId);
     if (!score) {
@@ -301,7 +309,7 @@ export class AssessmentService {
 
   async removeEvidence(assessmentId: string, evidenceId: string, user: JwtPayload): Promise<void> {
     this.assertCanWrite(user);
-    await this.assertDraftOrInProgress(assessmentId, user);
+    await this.assertEditable(assessmentId, user);
 
     const evidence = await this.assessmentRepo.findEvidenceById(evidenceId);
     if (!evidence || evidence.score.assessmentId !== assessmentId) {
@@ -318,7 +326,7 @@ export class AssessmentService {
     user: JwtPayload,
   ): Promise<AssessmentResult> {
     this.assertCanWrite(user);
-    await this.assertDraftOrInProgress(assessmentId, user);
+    await this.assertEditable(assessmentId, user);
     await this.assessmentRepo.updateNotes(assessmentId, dto.notes ?? null);
     return this.findOne(assessmentId, user);
   }
@@ -470,6 +478,56 @@ export class AssessmentService {
       );
     }
     await this.assertPriorRoundCompleted(assessment.storeId, assessment.round);
+  }
+
+  // The content gate: scores, evidence and notes. Wider than
+  // assertDraftOrInProgress by exactly one case — an admin role may correct a
+  // round that is already SUBMITTED/APPROVED, because a wrong score that can
+  // never be fixed poisons ranking and every report built on it for good.
+  // The round stays finished: this reopens the content, not the status, so
+  // saveDraft and submit keep the stricter gate and cannot walk it backwards
+  // or duplicate its red flags.
+  private async assertEditable(
+    assessmentId: string,
+    user: JwtPayload,
+  ): Promise<AssessmentStatusRow> {
+    const assessment = await this.findStatusOrThrow(assessmentId);
+    await this.assertAssignedToStore(assessment.storeId, user);
+    if (isCompleted(assessment.status) && !isAdminRole(user.role)) {
+      throw new BadRequestException(
+        ERROR_CODES.ASSESS.SUBMITTED,
+        'ไม่สามารถแก้ไขการประเมินที่ส่งไปแล้ว',
+      );
+    }
+    await this.assertPriorRoundCompleted(assessment.storeId, assessment.round);
+    return assessment;
+  }
+
+  // Re-freezes a finished round after an admin correction, applying the exact
+  // formula submit() used. Only the score and the flags move — status,
+  // submittedAt, the assessor and Store.status all stay as the submit left them.
+  private async rescore(assessmentId: string): Promise<void> {
+    const assessment = await this.assessmentRepo.findDetailById(assessmentId);
+    if (!assessment) throw new NotFoundException(ERROR_CODES.ASSESS.NOT_FOUND, 'ไม่พบการประเมิน');
+
+    const { dimensions } = await this.dimensionService.findScoringContext();
+    const scoredQuestions: ScoredQuestion[] = assessment.scores
+      .filter((s) => s.rawScore !== null)
+      .map((s) => ({
+        questionNo: s.question.questionNo,
+        dimensionId: s.question.dimensionId,
+        rawScore: s.rawScore as number,
+      }));
+
+    const totalScore = computeTotalScore(
+      computeDimensionScores(scoredQuestions, dimensions),
+      dimensions,
+    );
+    await this.assessmentRepo.rescoreAssessment(
+      assessmentId,
+      totalScore,
+      detectRedFlags(scoredQuestions),
+    );
   }
 
   // "ร้านที่ได้รับมอบหมาย" — what an assessor may *score*, on top of the read

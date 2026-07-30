@@ -150,6 +150,22 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   `features/user/components/user-row-actions.tsx`, mode `assessor` / `mentor`
   — one endpoint, different copy), and `mocks/handlers/user.handlers.ts`
   mirrors the widened check.
+- A finished round (`SUBMITTED`/`APPROVED`) is **editable by ADMIN / SUPER_ADMIN**
+  since 2026-07-30. `AssessmentService.assertEditable` gates the content writes
+  (score, evidence, notes) and lets an admin role through; `assertDraftOrInProgress`
+  still gates `PATCH /:id/draft` and `POST /:id/submit` for everyone, so the round
+  never walks back to IN_PROGRESS and never re-submits. Every admin score write
+  calls `rescore()`, which rewrites the frozen `totalScore` with the submit
+  formula and reconciles red flags **by type** (`rescoreAssessment` in the
+  repository) so a flag that still triggers keeps its `resolved`. `assessorId`,
+  `submittedAt` and `Store.status` are deliberately left alone. Web:
+  `AssessmentForm` puts those two roles into a correction mode (scores editable,
+  draft/submit hidden), and `useUpdateScore` invalidates the round, the store
+  summaries, the rank and the store detail on a completed round because the
+  single-question response carries none of the re-frozen roll-up. The MSW
+  handlers mirror the split — `contentLock` (role-aware) vs `completedLock`
+  (strict), locked down by `mocks/handlers/assessment.handlers.test.ts`, and the
+  fixture re-freezes `totalScore` on a completed round's score write.
 - Assessment **writes** are gated on `Store.assignedUsers` for ASSESSOR
   (403 `PERM_001`); admin roles bypass. An ASSESSOR with no assignments can
   score nothing, so the web must surface that 403 rather than auto-creating a

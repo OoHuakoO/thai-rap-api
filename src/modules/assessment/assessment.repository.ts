@@ -256,6 +256,56 @@ export class AssessmentRepository {
     return this.prisma.evidence.delete({ where: { id } });
   }
 
+  // An admin correcting a finished round: rewrite the frozen totalScore and
+  // re-derive the flags without touching status, submittedAt or Store.status —
+  // the round stays as submitted as it was. Flags are reconciled by type rather
+  // than wiped and recreated, so a flag that still triggers keeps the `resolved`
+  // an admin already set on it.
+  async rescoreAssessment(
+    id: string,
+    totalScore: number,
+    redFlags: Array<{
+      type: RedFlag['type'];
+      severity: RedFlag['severity'];
+      triggerQuestions: number[];
+    }>,
+  ): Promise<void> {
+    const existing = await this.prisma.redFlag.findMany({
+      where: { assessmentId: id },
+      select: { id: true, type: true },
+    });
+    const nextByType = new Map(redFlags.map((flag) => [flag.type, flag]));
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.assessment.update({ where: { id }, data: { totalScore } });
+
+      const staleIds = existing.filter((row) => !nextByType.has(row.type)).map((row) => row.id);
+      if (staleIds.length > 0) {
+        await tx.redFlag.deleteMany({ where: { id: { in: staleIds } } });
+      }
+
+      const existingByType = new Map(existing.map((row) => [row.type, row.id]));
+      for (const flag of redFlags) {
+        const existingId = existingByType.get(flag.type);
+        if (existingId) {
+          await tx.redFlag.update({
+            where: { id: existingId },
+            data: { severity: flag.severity, triggerQuestions: flag.triggerQuestions },
+          });
+        } else {
+          await tx.redFlag.create({
+            data: {
+              assessmentId: id,
+              type: flag.type,
+              severity: flag.severity,
+              triggerQuestions: flag.triggerQuestions,
+            },
+          });
+        }
+      }
+    });
+  }
+
   async submitAssessment(
     id: string,
     storeId: string,

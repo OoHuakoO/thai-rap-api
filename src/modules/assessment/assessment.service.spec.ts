@@ -222,6 +222,7 @@ describe('AssessmentService', () => {
             findEvidenceById: jest.fn(),
             removeEvidence: jest.fn(),
             submitAssessment: jest.fn(),
+            rescoreAssessment: jest.fn(),
           },
         },
         {
@@ -518,27 +519,79 @@ describe('AssessmentService', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
-    it('should throw BadRequestException when the assessment is already submitted', async () => {
+    it('should throw BadRequestException when an ASSESSOR edits an already submitted assessment', async () => {
       repo.findStatusById.mockResolvedValue({
         ...mockStatusRow,
         status: AssessmentStatus.SUBMITTED,
       });
 
-      await expect(service.updateScore('assessment-1', 1, dto, admin)).rejects.toBeInstanceOf(
+      await expect(service.updateScore('assessment-1', 1, dto, assessor)).rejects.toBeInstanceOf(
         BadRequestException,
       );
+      expect(repo.upsertScore).not.toHaveBeenCalled();
     });
 
-    it('should throw BadRequestException when the assessment is already approved', async () => {
+    it('should throw BadRequestException when an ASSESSOR edits an already approved assessment', async () => {
       repo.findStatusById.mockResolvedValue({
         ...mockStatusRow,
         status: AssessmentStatus.APPROVED,
       });
 
-      await expect(service.updateScore('assessment-1', 1, dto, admin)).rejects.toBeInstanceOf(
+      await expect(service.updateScore('assessment-1', 1, dto, assessor)).rejects.toBeInstanceOf(
         BadRequestException,
       );
       expect(repo.upsertScore).not.toHaveBeenCalled();
+    });
+
+    // The correction path: a finished round may be wrong, and only an admin
+    // role may fix it — the score it froze feeds ranking and every report.
+    it('should let an ADMIN correct a submitted assessment and re-freeze its score', async () => {
+      repo.findStatusById.mockResolvedValue({
+        ...mockStatusRow,
+        status: AssessmentStatus.SUBMITTED,
+      });
+      dimensionService.findQuestionById.mockResolvedValue(mockQuestions[0]);
+      repo.upsertScore.mockResolvedValue(mockScoreRow);
+      repo.findDetailById.mockResolvedValue({
+        ...mockAssessmentDetail,
+        status: AssessmentStatus.SUBMITTED,
+      });
+
+      await service.updateScore('assessment-1', 1, dto, admin);
+
+      // 75% in both dimensions, weighted 30/70 — the same formula submit() ran.
+      expect(repo.rescoreAssessment).toHaveBeenCalledWith('assessment-1', 75, expect.any(Array));
+    });
+
+    it('should keep the original assessor when an ADMIN corrects a submitted assessment', async () => {
+      repo.findStatusById.mockResolvedValue({
+        ...mockStatusRow,
+        status: AssessmentStatus.SUBMITTED,
+      });
+      dimensionService.findQuestionById.mockResolvedValue(mockQuestions[0]);
+      repo.upsertScore.mockResolvedValue(mockScoreRow);
+      repo.findDetailById.mockResolvedValue({
+        ...mockAssessmentDetail,
+        status: AssessmentStatus.SUBMITTED,
+      });
+
+      await service.updateScore('assessment-1', 1, dto, admin);
+
+      expect(repo.reassignAssessor).not.toHaveBeenCalled();
+    });
+
+    it('should not re-freeze the score when the assessment is still in progress', async () => {
+      repo.findStatusById.mockResolvedValue({
+        ...mockStatusRow,
+        status: AssessmentStatus.IN_PROGRESS,
+      });
+      dimensionService.findQuestionById.mockResolvedValue(mockQuestions[0]);
+      repo.upsertScore.mockResolvedValue(mockScoreRow);
+
+      await service.updateScore('assessment-1', 1, dto, admin);
+
+      expect(repo.rescoreAssessment).not.toHaveBeenCalled();
+      expect(repo.reassignAssessor).toHaveBeenCalledWith('assessment-1', admin.sub);
     });
 
     it('should let an ASSESSOR score a store assigned to them', async () => {
@@ -675,15 +728,33 @@ describe('AssessmentService', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
-    it('should throw BadRequestException when the assessment is already submitted', async () => {
+    it('should throw BadRequestException when an ASSESSOR edits notes on a submitted assessment', async () => {
       repo.findStatusById.mockResolvedValue({
         ...mockStatusRow,
         status: AssessmentStatus.SUBMITTED,
       });
 
       await expect(
-        service.updateNotes('assessment-1', { notes: 'x' }, admin),
+        service.updateNotes('assessment-1', { notes: 'x' }, assessor),
       ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.updateNotes).not.toHaveBeenCalled();
+    });
+
+    it('should let an ADMIN edit notes on a submitted assessment', async () => {
+      repo.findStatusById.mockResolvedValue({
+        ...mockStatusRow,
+        status: AssessmentStatus.SUBMITTED,
+      });
+      repo.findDetailById.mockResolvedValue({
+        ...mockAssessmentDetail,
+        status: AssessmentStatus.SUBMITTED,
+      });
+
+      await service.updateNotes('assessment-1', { notes: 'แก้ไขภายหลัง' }, admin);
+
+      expect(repo.updateNotes).toHaveBeenCalledWith('assessment-1', 'แก้ไขภายหลัง');
+      // Notes carry no score — nothing to re-freeze.
+      expect(repo.rescoreAssessment).not.toHaveBeenCalled();
     });
   });
 
