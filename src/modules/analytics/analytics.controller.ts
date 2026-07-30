@@ -25,13 +25,9 @@ export class AnalyticsController {
   }
 
   @Get(':storeId/radar')
-  @ApiOperation({ summary: 'Radar chart comparing two rounds for one store' })
-  getRadar(
-    @Param('storeId') storeId: string,
-    @Query() query: QueryAnalyticsDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.analyticsService.getRadar(storeId, query, user);
+  @ApiOperation({ summary: 'Radar chart — one series per submitted round for one store' })
+  getRadar(@Param('storeId') storeId: string, @CurrentUser() user: JwtPayload) {
+    return this.analyticsService.getRadar(storeId, user);
   }
 
   @Get(':storeId/trend')

@@ -15,8 +15,6 @@ const TEXT = {
   rank: 'อันดับในโครงการ',
   totalStores: 'จำนวนร้านทั้งหมด',
   axis: 'มิติ',
-  baseline: 'รอบฐาน',
-  compare: 'รอบเปรียบเทียบ',
   redFlagType: 'ประเภทสัญญาณเตือน',
   severity: 'ระดับ',
   triggerQuestions: 'ข้อที่ทำให้เกิด',
@@ -38,7 +36,13 @@ export async function buildAnalyticsWorkbook(
 ): Promise<Buffer> {
   const workbook = new Workbook();
   const sheet = workbook.addWorksheet(SHEET_NAME);
-  sheet.columns = [{ width: 28 }, { width: 20 }, { width: 20 }];
+  // One column per round in the radar payload — a store part-way through the
+  // funnel carries fewer than four.
+  const roundColumns = analytics.radar.series.length;
+  sheet.columns = [
+    { width: 28 },
+    ...Array.from({ length: Math.max(roundColumns, 2) }, () => ({ width: 20 })),
+  ];
 
   sheet.addRow([TEXT.storeName, storeName]);
   sheet.addRow([TEXT.t0Score, analytics.kpis.t0Score ?? TEXT.noData]);
@@ -55,18 +59,17 @@ export async function buildAnalyticsWorkbook(
 
   sheet.addRow([]);
   const radarHeaderRow = sheet.rowCount + 1;
-  const [baselineSeries, compareSeries] = analytics.radar.series;
-  sheet.addRow([TEXT.axis, TEXT.baseline, TEXT.compare]);
+  sheet.addRow([TEXT.axis, ...analytics.radar.series.map((series) => series.name)]);
   styleHeaderRow(sheet, radarHeaderRow);
   analytics.radar.axes.forEach((axis, index) => {
     sheet.addRow([
       axis,
-      baselineSeries?.data[index] ?? TEXT.noData,
-      compareSeries?.data[index] ?? TEXT.noData,
+      ...analytics.radar.series.map((series) => series.data[index] ?? TEXT.noData),
     ]);
   });
-  sheet.getColumn(2).numFmt = SCORE_FORMAT;
-  sheet.getColumn(3).numFmt = SCORE_FORMAT;
+  for (let column = 2; column <= roundColumns + 1; column += 1) {
+    sheet.getColumn(column).numFmt = SCORE_FORMAT;
+  }
 
   sheet.addRow([]);
   const flagHeaderRow = sheet.rowCount + 1;

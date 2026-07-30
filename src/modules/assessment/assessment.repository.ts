@@ -17,24 +17,44 @@ const assessmentDetailInclude = {
   redFlags: true,
 } satisfies Prisma.AssessmentInclude;
 
-// Only T0/T1 map to a store status by round completion — later milestones
-// (Field Audit, IDP, final follow-up) are separate program stages, not
-// per-round labels, and are set elsewhere (manual status update / future
-// ranking-finalize flow), not here.
 // Same list as COMPLETED_STATUSES in AssessmentService — a round counts as
 // finished at SUBMITTED or APPROVED, for ranking as much as for editing.
 const COMPLETED_STATUSES = [AssessmentStatus.SUBMITTED, AssessmentStatus.APPROVED];
 
+// T2 is the Field Audit and T3 the one-month follow-up, so those two rounds
+// land on the program milestones that already mean exactly that rather than
+// on round-shaped statuses of their own. IDP_CREATED has no round — it is set
+// elsewhere (manual status update / future ranking-finalize flow), not here.
 const ROUND_COMPLETION_STATUS: Partial<Record<Round, StoreStatus>> = {
   T0: StoreStatus.T0_COMPLETED,
   T1: StoreStatus.T1_COMPLETED,
+  T2: StoreStatus.FIELD_AUDITED,
+  T3: StoreStatus.COMPLETED,
 };
 
 // Guards against clobbering a status an admin has already advanced manually
 // (e.g. past PITCHING_COMPLETED/SELECTED) — only move forward, never back.
+// T2/T3 both require only T1 (REQUIRED_PRIOR_ROUND in AssessmentService), so a
+// store can reach either straight from T1_COMPLETED without the stages
+// between. WAITING_LIST and NOT_SELECTED are left out on purpose: a store that
+// did not make the cohort is not field-audited or followed up.
 const STORE_STATUS_ADVANCE_FROM: Partial<Record<Round, StoreStatus[]>> = {
   T0: [StoreStatus.REGISTERED],
   T1: [StoreStatus.REGISTERED, StoreStatus.T0_COMPLETED, StoreStatus.CAMP_COMPLETED],
+  T2: [
+    StoreStatus.T1_COMPLETED,
+    StoreStatus.PITCHING_COMPLETED,
+    StoreStatus.SELECTED,
+    StoreStatus.CONDITIONAL_SELECTED,
+  ],
+  T3: [
+    StoreStatus.T1_COMPLETED,
+    StoreStatus.PITCHING_COMPLETED,
+    StoreStatus.SELECTED,
+    StoreStatus.CONDITIONAL_SELECTED,
+    StoreStatus.FIELD_AUDITED,
+    StoreStatus.IDP_CREATED,
+  ],
 };
 
 export type AssessmentDetail = Prisma.AssessmentGetPayload<{

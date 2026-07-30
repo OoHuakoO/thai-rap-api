@@ -66,7 +66,7 @@ export class AnalyticsService {
     return {
       storeId: store.id,
       kpis,
-      radar: this.buildRadar(baseRound, compareRound, baseRow, compareRow, dimensions),
+      radar: this.buildRadar(rows, dimensions),
       trend: this.buildTrend(store.name, rows),
       strengths: this.buildHighlights(focusRow, dimensions, false),
       weaknesses: this.buildHighlights(focusRow, dimensions, true),
@@ -77,22 +77,15 @@ export class AnalyticsService {
     };
   }
 
-  async getRadar(
-    storeId: string,
-    query: QueryAnalyticsDto,
-    user: JwtPayload,
-  ): Promise<AnalyticsRadarChart> {
+  async getRadar(storeId: string, user: JwtPayload): Promise<AnalyticsRadarChart> {
     this.assertCanRead(user);
     await this.storeService.findAccessible(storeId, user);
-    const [baseRound, compareRound] = this.parseCompare(query.compare);
 
     const [rows, { dimensions }] = await Promise.all([
       this.analyticsRepo.findRoundsForStore(storeId),
       this.dimensionService.findScoringContext(),
     ]);
-    const baseRow = rows.find((r) => r.round === baseRound);
-    const compareRow = rows.find((r) => r.round === compareRound);
-    return this.buildRadar(baseRound, compareRound, baseRow, compareRow, dimensions);
+    return this.buildRadar(rows, dimensions);
   }
 
   async getTrend(storeId: string, user: JwtPayload): Promise<AnalyticsTrend> {
@@ -158,15 +151,15 @@ export class AnalyticsService {
     };
   }
 
+  // Every submitted round, not the compared pair: the two dimension charts read
+  // this payload and the web draws the whole funnel in one picture. A round with
+  // no submitted assessment is left out rather than sent as an all-null series,
+  // which would only add a legend entry that plots nothing.
   private buildRadar(
-    baseRound: Round,
-    compareRound: Round,
-    baseRow: AnalyticsRoundRow | undefined,
-    compareRow: AnalyticsRoundRow | undefined,
+    rows: AnalyticsRoundRow[],
     dimensions: DimensionWithMax[],
   ): AnalyticsRadarChart {
-    const seriesFor = (row: AnalyticsRoundRow | undefined): (number | null)[] => {
-      if (!row) return dimensions.map(() => null);
+    const seriesFor = (row: AnalyticsRoundRow): (number | null)[] => {
       const scoresByDimension = computeDimensionScores(
         row.scores
           .filter((s) => s.rawScore !== null)
@@ -176,12 +169,14 @@ export class AnalyticsService {
       return dimensions.map((d) => round2(scoresByDimension.get(d.id) ?? 0));
     };
 
+    const byRound = new Map(rows.map((row) => [row.round, row]));
+
     return {
       axes: dimensions.map((d) => d.name),
-      series: [
-        { name: baseRound, data: seriesFor(baseRow) },
-        { name: compareRound, data: seriesFor(compareRow) },
-      ],
+      series: ALL_ROUNDS.filter((round) => byRound.has(round)).map((round) => ({
+        name: round,
+        data: seriesFor(byRound.get(round) as AnalyticsRoundRow),
+      })),
     };
   }
 

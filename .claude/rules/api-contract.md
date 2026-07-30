@@ -43,6 +43,20 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 
 ## Known Sync Points (as of 2026-07)
 
+- **`analytics.radar` carries one series per submitted round, not the compared
+  pair** (2026-07-30). `AnalyticsService.buildRadar` emits T0→T3 order and skips
+  a round with no `SUBMITTED`/`APPROVED` assessment, so `series.length` is 0–4
+  and a series name is a bare `Round`. `query.compare` still drives the KPIs and
+  the export filename only, which is why `GET /analytics/:storeId/radar` **no
+  longer takes it** — that route answers every round and had no other use for
+  the param (the web's `analyticsService.getRadar` never sent one, so it used to
+  422). Breaking for any client that indexed `series[0]`/`series[1]` as
+  baseline/comparison: the xlsx export now writes one score column per round
+  instead of the fixed รอบฐาน/รอบเปรียบเทียบ pair. Web: both dimension charts
+  read the payload's own rounds — `RadarComparisonCard` thins its fill past two
+  series, `DimensionComparisonCard` drops its per-bar value labels past two and
+  titles itself off the series (`formatSeriesRoundLabel`), and
+  `mocks/fixtures/analytics.fixtures.ts` returns all four rounds to match.
 - `GET /reports/rounds/:round/stores` (+ `/export`) is the **cross-store**
   report: one row per accessible store for a single round, mirroring
   `docs/…03_สรุปคะแนน.csv` — code, name, province, ความครบถ้วน, คะแนนดิบ,
