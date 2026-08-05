@@ -17,7 +17,9 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('kpis')
-  @ApiOperation({ summary: 'Get project-level KPI cards (staff roles only)' })
+  @ApiOperation({
+    summary: 'Get KPI cards, scoped to the stores the caller can see',
+  })
   getKpis(@CurrentUser() user: JwtPayload) {
     return this.dashboardService.getKpis(user);
   }

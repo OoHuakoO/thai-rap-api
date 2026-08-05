@@ -1,47 +1,42 @@
-# Stores Module — `/api/v1/stores` (+ `/api/v1/provinces`)
+# Stores Module — `/api/v1/stores` (+ `/provinces`, `/store-types`)
 
-> Note: all responses are wrapped in the standard `{ success, data }` envelope per `00-overview.md` — the payloads shown here are the `data` part only.
+> All responses are wrapped in the standard `{ success, data }` envelope per [00-overview.md](00-overview.md) — the payloads below are the `data` part only.
 
 ---
 
 ## Access Summary
 
-All routes require a valid access token (`Authorization: Bearer`) — there is no `@Public()` route in this module.
+Every route needs a valid access token; there is no `@Public()` route in this module.
 
-| Action | ADMIN | ASSESSOR | MENTOR | ENTREPRENEUR | JUDGE | ME_TEAM |
-|---|---|---|---|---|---|---|
-| List stores | ✓ (all) | ✓ (all) | ✓ (all) | own only | ✓ (all) | ✓ (all) |
-| Get store detail | ✓ (any) | ✓ (any) | ✓ (any) | own only | ✓ (any) | ✓ (any) |
-| Get stats | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Create store | ✓ (any owner) | — | — | ✓ (self as owner) | — | — |
-| Update store | ✓ (any) | — | — | own only | — | — |
-| Delete store | ✓ (any) | — | — | own only | — | — |
-| Update status | ✓ | — | — | — | — | — |
-| Upload/delete documents & photos | ✓ (any) | — | — | own only | — | — |
+| Action | SUPER_ADMIN / ADMIN | ASSESSOR / MENTOR | ENTREPRENEUR | JUDGE / ME_TEAM | VIEWER |
+|---|---|---|---|---|---|
+| List stores | ✓ all | ✓ assigned only | ✓ owned only | ✓ all | ✓ all, public fields |
+| Get store detail | ✓ any | ✓ assigned only | ✓ owned only | ✓ any | ✓ any, public fields |
+| Get stats | ✓ | 403 | ✓ | 403 | 403 |
+| Create store | ✓ (any owner) | 403 | ✓ (self as owner) | 403 | 403 |
+| Update / delete / uploads | ✓ any | 403 | ✓ own only | 403 | 403 |
+| Update status | ✓ | 403 | 403 | 403 | 403 |
 
-`Store.ownerId` (nullable FK to `User`) tracks which `ENTREPRENEUR` owns a store. Scoping (`assertCanManage` in `store.service.ts`):
-- **ENTREPRENEUR**: `GET /stores` only returns stores where `ownerId` matches their own user id; `GET /stores/:id` on a store they don't own returns `403 PERM_001`; `POST /stores` always sets `ownerId` to themselves (any `ownerId` in the body is ignored); update/delete/uploads allowed only on their own store.
-- **ADMIN**: unrestricted on every action; may pass `ownerId` on `POST /stores` to pre-assign the store to an entrepreneur.
-- **ASSESSOR / MENTOR / JUDGE / ME_TEAM**: read-only, no scoping, see every store; no write access.
+Two different checks are at work:
 
-`ownerId` is set only at creation time and is **not** editable via `PATCH /stores/:id` (`UpdateStoreDto = PartialType(OmitType(CreateStoreDto, ['ownerId']))`).
+- **`assertVisible`** (reads) is the single-store mirror of `resolveStoreScope()`. An ENTREPRENEUR 403s on a store it doesn't own; an ASSESSOR or MENTOR 403s on a store outside its assignment list. A narrowed role cannot reach a hidden store by guessing its id — and because assessments, reports and analytics all resolve through `StoreService.findAccessible()`, the same 403 follows it into those modules.
+- **`assertCanManage`** (writes) allows admin roles and the owning ENTREPRENEUR, nobody else.
 
-Assessor-assignment scoping (an `ASSESSOR` seeing only stores assigned to them) is still not implemented — the `assignedUsers` relation exists in the schema but is not enforced in any query.
+`Store.ownerId` (nullable FK) is set at creation and is **not** editable through `PATCH /stores/:id` (`UpdateStoreDto` omits it). A SUPER_ADMIN moves ownership with `PATCH /users/:id/owned-stores`.
 
-`province` is validated against a fixed lookup table (see `GET /provinces`) — `POST` and `PATCH` reject any value not in it with `400 STORE_003`.
+`province` and `storeType` are validated against lookup tables — `400 STORE_003` / `400 STORE_009` for a value not in them.
 
 ---
 
 ## Store Response Shape (`StoreResult`)
 
-All store endpoints return this mapped shape (not the raw Prisma row):
-
 ```json
 {
   "id": "clstore1",
+  "code": "RAP69-001",
   "name": "ร้านอาหารสุขใจ",
   "province": "ชลบุรี",
-  "storeType": "อาหารตามสั่ง",
+  "storeType": "อาหารไทย",
   "ownerName": "สมชาย ใจดี",
   "phone": "0812345678",
   "email": "somchai@example.com",
@@ -74,96 +69,121 @@ All store endpoints return this mapped shape (not the raw Prisma row):
 }
 ```
 
-- `avgRevenueMin`/`avgRevenueMax` — revenue range (the single `avgRevenue` field from earlier drafts no longer exists). Both nullable.
-- `mainProblems`/`goals` — arrays of strings (not free-text strings).
-- `latestScore`/`latestAssessorName`/`latestAssessedAt` — from the store's most recent `SUBMITTED`/`APPROVED` assessment (any round); all `null` if none.
+- `code` — the project-wide identifier printed on every offline form and Excel export (`RAP69-001…`). Unique, required on create; the cuid `id` exists nowhere outside this database.
+- `province`, `storeType`, `ownerName`, `phone`, `email`, `address` are **nullable in the schema** — stores imported from the intake workbook arrive without them. Aggregates substitute `"ไม่ระบุ"` rather than emitting null.
+- `mainProblems`/`goals` — arrays of strings.
+- `latestScore`/`latestAssessorName`/`latestAssessedAt` — from the store's most recent `SUBMITTED`/`APPROVED` assessment of any round; all `null` if none.
 - `documents` — populated on `GET /stores/:id` only; **always `[]` in the `GET /stores` list**.
-- File URLs are relative paths served from local disk (`/uploads/...`).
+- File urls are relative paths served from local disk.
+
+### `PublicStoreResult` — what a VIEWER gets
+
+On both `GET /stores` and `GET /stores/:id`, a `VIEWER` receives a narrowed object:
+
+```
+id, ownerId, code, name, province, storeType,
+socialLinks, goals, menuPhotos, coverUrl, storePhotos, status
+```
+
+Contact details, revenue, `mainProblems`, `documents`, `latestScore` and every timestamp are **absent, not blanked** — a client that indexes into them without a guard throws. The object is rebuilt field by field, so anything added to `StoreResult` later is private until it is named there too.
+
+`StoreStatus`: `REGISTERED`, `T0_COMPLETED`, `CAMP_COMPLETED`, `T1_COMPLETED`, `PITCHING_COMPLETED`, `SELECTED`, `CONDITIONAL_SELECTED`, `WAITING_LIST`, `NOT_SELECTED`, `FIELD_AUDITED`, `IDP_CREATED`, `COMPLETED`.
 
 ---
 
-## Endpoints
+## Lookups
 
 ### GET /provinces
-List all 77 Thai provinces (76 provinces + Bangkok), seeded via `prisma/seed.ts`. For the store create/edit province dropdown.
+The provinces THAI-RAP covers — **8 rows**, not all 77 of Thailand: จันทบุรี, ฉะเชิงเทรา, ชลบุรี, ตราด, ปราจีนบุรี, ระยอง, สระแก้ว, นครนายก. Seeded by `prisma/seed.ts`, which throws if the count is not 8.
 
 **Access:** Any valid access token
 
 **Response 200**
 ```json
-[
-  { "id": 1, "nameTh": "กระบี่" },
-  { "id": 2, "nameTh": "กรุงเทพมหานคร" }
-]
+[{ "id": 1, "nameTh": "จันทบุรี" }]
 ```
-Sorted by `nameTh` ascending. Thai name only — no `nameEn`/region field.
+Thai name only — the model has no `nameEn` or region column.
+
+### GET /store-types
+The ประเภทร้าน options a store may be filed under — 6 rows: อาหารไทย, อาหารทะเล, คาเฟ่, เดลิเวอรี, Catering, อื่น ๆ.
+
+**Access:** Any valid access token
+
+**Response 200**
+```json
+[{ "id": 1, "nameTh": "อาหารไทย" }]
+```
+
+Both tables are the validation source for `POST`/`PATCH /stores`.
 
 ---
 
+## Endpoints
+
 ### GET /stores
-List stores with pagination and filtering. `ENTREPRENEUR` callers only see their own stores.
+Paginated list, `createdAt desc`, narrowed per the access table above.
 
 **Query Params**
 | Param | Type | Description |
 |---|---|---|
-| `page` | number | Page number (default 1) |
-| `limit` | number | Items per page (default 10, max 100) |
-| `search` | string | `name`/`ownerName` contains |
+| `page` | number | Default 1 |
+| `limit` | number | Default 10, max 100 |
+| `search` | string | `name` or `ownerName` contains |
 | `province` | string | Exact match |
 | `storeType` | string | Exact match |
 | `status` | StoreStatus enum | Exact match |
 
-`hasRedFlag`, `zone`, and `round` filters do not exist on `QueryStoreDto`.
+`hasRedFlag`, `zone`, `round` and `sortBy`/`sortOrder` do not exist on `QueryStoreDto`.
 
-**Response 200** — `{ items: StoreResult[], meta }` (see shape above; `documents` is always `[]` here). Sorted `createdAt desc`; no `sortBy`/`sortOrder` support.
+**Response 200** — `{ items: StoreResult[], meta }` (`documents` always `[]`). A narrowed role with nothing in scope gets `items: []`, not an error.
 
 ---
 
 ### GET /stores/:id
-Single store as `StoreResult` **with `documents` populated**. `ENTREPRENEUR` callers get `403 PERM_001` on a store they don't own.
+Single store **with `documents` populated**.
 
 **Errors**
-- `403 PERM_001` — ENTREPRENEUR who doesn't own this store
+- `403 PERM_001` — ENTREPRENEUR that doesn't own it, or ASSESSOR/MENTOR it isn't assigned to
 - `404 STORE_001` — Store not found
 
 ---
 
 ### GET /stores/stats
-Aggregate dashboard stats. No query params.
+Programme-wide aggregate. Not narrowed by caller — it is a count of the whole programme, not of what the caller reaches. No query params.
+
+**Access:** ADMIN roles and ENTREPRENEUR only (mirrors who may open the web `/stores` page). Everyone else gets `403 PERM_001`.
 
 **Response 200**
 ```json
 {
   "total": 120,
-  "targetTotal": 150,
+  "targetTotal": 400,
   "t0CompletedCount": 95,
   "t1CompletedCount": 40,
-  "passedCount": 30,
-  "byProvince": [
-    { "province": "ชลบุรี", "count": 40, "pct": 33.3 }
-  ],
-  "storeTypes": ["อาหารตามสั่ง", "ก๋วยเตี๋ยว"]
+  "t2CompletedCount": 12,
+  "t3CompletedCount": 3,
+  "storeTypes": ["Catering", "คาเฟ่", "อาหารทะเล", "อาหารไทย"]
 }
 ```
-- `targetTotal` — fixed constant (`STORE_TARGET_TOTAL`), not derived from data.
-- `t0CompletedCount`/`t1CompletedCount` — count of distinct stores with a `SUBMITTED`/`APPROVED` assessment for that round (`(storeId, round)` is unique, so an assessment count equals a store count).
-- `passedCount` — stores with status `SELECTED` or `CONDITIONAL_SELECTED`.
-- `byProvince` — grouped by `province`, sorted by count desc, `pct` rounded to 1 decimal.
-- `storeTypes` — distinct `storeType` values, sorted asc (for filter dropdowns).
+- `targetTotal` — the fixed `STORE_TARGET_TOTAL` constant (400), not derived from data.
+- `tNCompletedCount` — distinct stores with a `SUBMITTED`/`APPROVED` assessment in that round.
+- `storeTypes` — distinct `Store.storeType` values in use, for filter dropdowns.
+
+There is **no** `byProvince` and no `passedCount` here — province distribution lives at `GET /dashboard/province-distribution`, and selected-store counts at `GET /dashboard/kpis`.
 
 ---
 
 ### POST /stores
-Create a new store.
 
-**Access:** ADMIN, ENTREPRENEUR (`403 PERM_001` for ASSESSOR/MENTOR/JUDGE/ME_TEAM)
+**Access:** ADMIN roles, ENTREPRENEUR
 
 **Body**
 ```json
 {
+  "code": "RAP69-001",
   "name": "ร้านส้มตำป้าแดง",
   "province": "ชลบุรี",
-  "storeType": "อาหารตามสั่ง",
+  "storeType": "อาหารไทย",
   "ownerName": "สมศรี ใจดี",
   "phone": "0812345678",
   "email": "somsri@example.com",
@@ -176,80 +196,76 @@ Create a new store.
   "ownerId": "cluser2"
 }
 ```
-`name`, `province`, `storeType`, `ownerName`, `phone`, `address` are required; the rest optional. `status` defaults to `REGISTERED` and cannot be set on create. Photos/documents cannot be set here — use the upload endpoints after creation.
+Required: `code` (≤50), `name` (≤200), `province`, `storeType`, `ownerName` (≤200), `phone` (≤20), `address`. The rest optional. `status` defaults to `REGISTERED` and cannot be set here; photos and documents are uploaded after creation.
 
-`ownerId` behavior: **ENTREPRENEUR** → always the caller's own id (body value ignored); **ADMIN** → used as-is if provided, else `null`.
+`ownerId`: **ENTREPRENEUR** → always the caller's own id, any body value ignored. **ADMIN** → used as-is, and must reference an existing ENTREPRENEUR.
 
-**Response 201** — `StoreResult`
+**Response 201** — `StoreResult` (`documents: []`)
 
 **Errors**
-- `403 PERM_001` — Caller is ASSESSOR/MENTOR/JUDGE/ME_TEAM
-- `400 STORE_003` — `province` not in the lookup table
+- `403 PERM_001` — Caller is not an admin role or an ENTREPRENEUR
+- `409 STORE_008` — `code` already used
+- `400 STORE_003` — `province` not in `GET /provinces`
+- `400 STORE_009` — `storeType` not in `GET /store-types`
+- `400 STORE_007` — `avgRevenueMax` < `avgRevenueMin`
+- `400 STORE_005` — `ownerId` is not an existing ENTREPRENEUR
 - `422 VALID_002` — Validation failure
 
 ---
 
 ### PATCH /stores/:id
-Update store info. Accepts any subset of the `POST /stores` body except `ownerId`. `status` is not settable here (use `PATCH /stores/:id/status`); photos/documents are not settable here either.
+Any subset of the `POST` body **except `ownerId`** — `code` included, re-checked for uniqueness when it changes. `status` is not settable here; photos and documents are not either.
 
-**Access:** ADMIN (any store); ENTREPRENEUR (own store only)
+**Access:** admin roles (any store); ENTREPRENEUR (own store only)
 
 **Response 200** — Updated `StoreResult`
 
-**Errors**
-- `403 PERM_001` — Not ADMIN and not the owning ENTREPRENEUR
-- `400 STORE_003` — `province` (if sent) not in the lookup table
-- `404 STORE_001` — Store not found
+**Errors** — `403 PERM_001`, `404 STORE_001`, plus the same `STORE_003` / `STORE_007` / `STORE_008` / `STORE_009` checks as create (the revenue range is validated against the merged values, so sending only `avgRevenueMin` can still trip `STORE_007`).
 
 ---
 
 ### PATCH /stores/:id/status
-Update store status. **ADMIN only** — the role check runs before the existence check, so a non-admin gets `403` even for a nonexistent store id.
+**Admin roles only.** The role check runs before the existence check, so a non-admin gets 403 even for a nonexistent id.
 
-**Body**
-```json
-{ "status": "SELECTED" }
-```
+**Body** `{ "status": "SELECTED" }`
 
 **Response 200** — Full updated `StoreResult`
 
-**Errors**
-- `403 PERM_001` — Not ADMIN
-- `404 STORE_001` — Store not found
-- `422 VALID_002` — Invalid `StoreStatus`
+**Errors** — `403 PERM_001`, `404 STORE_001`, `422 VALID_002`
 
 ---
 
 ### DELETE /stores/:id
-Delete store (relations cascade per Prisma schema).
+Only for a store nothing depends on — neither `Assessment` nor `StoreDocument` cascades.
 
-**Access:** ADMIN (any store); ENTREPRENEUR (own store only)
+**Access:** admin roles (any store); ENTREPRENEUR (own store only)
 
 **Response 200** — `{ "success": true, "data": null }`
 
+The store's whole upload directory (`/uploads/stores/:id`) is removed with it.
+
 **Errors**
-- `403 PERM_001` — Not ADMIN and not the owning ENTREPRENEUR
+- `403 PERM_001` — Not an admin role and not the owner
+- `409 STORE_010` — The store has assessments, or still has attached documents (delete those first)
 - `404 STORE_001` — Store not found
 
 ---
 
 ## File Uploads
 
-All upload/delete endpoints below share the same access rule as update/delete (ADMIN any store, ENTREPRENEUR own store only — `403 PERM_001` otherwise) and `404 STORE_001` if the store doesn't exist. Uploads are `multipart/form-data` with a single `file` field, stored on local disk under `/uploads/stores/:id/...`; original (Thai) filenames are preserved in metadata. Max size 10 MB (`FILE_MAX_SIZE_BYTES`).
+All upload/delete routes share `assertCanManage` (admin roles any store, owning ENTREPRENEUR own store — `403 PERM_001` otherwise) and `404 STORE_001` for a missing store. Uploads are `multipart/form-data` with a single `file` field, written under `/uploads/stores/:id/...`; original Thai filenames are preserved in metadata. Max 10 MB.
 
-**File errors (all endpoints):**
-- `400 FILE_001` — File type not allowed
-- `400 FILE_002` — File exceeds 10 MB
-
-Both are `BadRequestException` (HTTP 400) — not 413/422.
+**File errors (all endpoints):** `400 FILE_001` type not allowed, `400 FILE_002` over 10 MB. Both are `BadRequestException` — 400, never 413/422.
 
 | Endpoint | Allowed types | Returns |
 |---|---|---|
-| `POST /stores/:id/documents` | pdf, xlsx, docx, csv (`STORE_DOCUMENT_MIME_REGEX` — **no images**) | 201, the created document object (same shape as `documents[]` entries) |
-| `DELETE /stores/:id/documents/:documentId` | — | 200, `null`. `404 STORE_004` if the document doesn't exist or belongs to another store. Removes DB row and disk file |
-| `POST /stores/:id/menu-photos` | jpeg, png, webp (`PHOTO_MIME_REGEX`) | 201, the full updated `menuPhotos` string array |
-| `DELETE /stores/:id/menu-photos` | body `{ "url": "/uploads/..." }` | 200, the updated `menuPhotos` array. Deleting a url not in the array is a silent no-op |
-| `POST /stores/:id/cover` | jpeg, png, webp | 201, the new `coverUrl` string. Replaces (and deletes) any existing cover |
+| `POST /stores/:id/documents` | pdf, xlsx, docx, csv (**no images**) | 201, the created document object |
+| `DELETE /stores/:id/documents/:documentId` | — | 200, `null`. `404 STORE_004` if the document doesn't exist or belongs to another store |
+| `POST /stores/:id/menu-photos` | jpeg, png, webp | 201, the full updated `menuPhotos` array |
+| `DELETE /stores/:id/menu-photos` | body `{ "url": "/uploads/..." }` | 200, the updated array. `404 STORE_006` if the url is not in this store's list |
+| `POST /stores/:id/cover` | jpeg, png, webp | 201, the new `coverUrl` string. Replaces and deletes any existing cover |
 | `DELETE /stores/:id/cover` | — | 200, `null` |
-| `POST /stores/:id/store-photos` | jpeg, png, webp | 201, the full updated `storePhotos` string array |
-| `DELETE /stores/:id/store-photos` | body `{ "url": "/uploads/..." }` | 200, the updated `storePhotos` array |
+| `POST /stores/:id/store-photos` | jpeg, png, webp | 201, the full updated `storePhotos` array |
+| `DELETE /stores/:id/store-photos` | body `{ "url": "/uploads/..." }` | 200, the updated array. `404 STORE_006` on an unknown url |
+
+Deleting a photo is gated on the url actually being in that store's array — otherwise one store's manager could delete another store's files.
