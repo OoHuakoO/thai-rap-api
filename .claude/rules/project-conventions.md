@@ -1,7 +1,7 @@
 # THAI-RAP API — Project Conventions
 
 ## Stack
-NestJS 10 + TypeScript, Prisma 5 (MySQL), JWT (access + refresh), class-validator, Swagger, Winston.
+NestJS 10 + TypeScript, Prisma (MySQL), JWT (access + refresh), class-validator, Swagger, Winston.
 
 ---
 

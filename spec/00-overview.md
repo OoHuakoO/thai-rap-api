@@ -8,7 +8,7 @@ Set by `app.apiPrefix` / `app.apiVersion` (`main.ts` → `setGlobalPrefix`). Swa
 
 ## Tech Stack
 - Runtime: NestJS 10 (TypeScript)
-- ORM: Prisma 5 + MySQL
+- ORM: Prisma 7 + MySQL
 - Auth: JWT access token + refresh token (httpOnly cookie)
 - File upload: Multipart form-data → local disk (`./uploads`)
 - Mail: OTP password-reset mail via `MailService`
