@@ -28,12 +28,39 @@ export const ASSESSMENT_READ_ROLES: Role[] = [
   Role.ADMIN,
   Role.ASSESSOR,
   Role.MENTOR,
-  Role.ME_TEAM,
   Role.ENTREPRENEUR,
 ];
 
 export function canReadAssessment(role: string): boolean {
   return ASSESSMENT_READ_ROLES.some((allowed) => allowed === role);
+}
+
+// Who may read pitching forms and the reports built on them. Everything a judge
+// writes — scores, comments, a selection verdict — is committee material about a
+// store that has not been told the outcome yet, so this is the narrowest read
+// list in the project: the judging panel and the people running it, nobody else.
+// ASSESSOR and MENTOR read the 50-question assessment but not this.
+//
+// An allow-list, not a deny-list — same rule as ASSESSMENT_READ_ROLES.
+export const PITCHING_READ_ROLES: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.JUDGE];
+
+export function canReadPitching(role: string): boolean {
+  return PITCHING_READ_ROLES.some((allowed) => allowed === role);
+}
+
+// Who may fill a pitching form in. JUDGE is the role the form exists for; the
+// admin pair is here for the same reason it can correct a submitted assessment
+// — someone has to key in a paper form a judge handed over. A judge still only
+// ever writes its *own* row (PitchingService.getWritableOrThrow).
+//
+// This currently holds the same three roles as PITCHING_READ_ROLES, and the two
+// stay separate anyway: they answer different questions, and a read-only seat on
+// the panel is the obvious next role to add. What actually differs between a
+// JUDGE and an admin today is scope, not capability — see ASSIGNMENT_SCOPED_ROLES.
+export const PITCHING_WRITE_ROLES: Role[] = [Role.SUPER_ADMIN, Role.ADMIN, Role.JUDGE];
+
+export function canWritePitching(role: string): boolean {
+  return PITCHING_WRITE_ROLES.some((allowed) => allowed === role);
 }
 
 // The roles whose access resolves against Store.assignedUsers — the ASSIGNED
@@ -45,7 +72,11 @@ export function canReadAssessment(role: string): boolean {
 // ASSESSOR — the stores it may score (AssessmentService.assertAssignedToStore).
 // MENTOR — the stores it may open at all, which is how it reaches an assessment
 // to build the IDP from ("แบบ 50 ข้อ" §3.4).
-export const ASSIGNMENT_SCOPED_ROLES: Role[] = [Role.ASSESSOR, Role.MENTOR];
+// JUDGE — the stores it may judge. A judging panel is assembled per store, and a
+// judge who has not been given a store has no business reading its pitch, so the
+// assignment list is the whole of what it reaches — the same list, and the same
+// SUPER_ADMIN screen, as the other two.
+export const ASSIGNMENT_SCOPED_ROLES: Role[] = [Role.ASSESSOR, Role.MENTOR, Role.JUDGE];
 
 // Same string-at-the-token-boundary rule as isAdminRole: an unknown role in a
 // token must fail the check rather than the type-check.
@@ -70,5 +101,4 @@ export const SELF_REGISTERABLE_ROLES: Role[] = [
   Role.MENTOR,
   Role.ASSESSOR,
   Role.JUDGE,
-  Role.ME_TEAM,
 ];

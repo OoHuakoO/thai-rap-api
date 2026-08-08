@@ -24,7 +24,7 @@ import {
   type DimensionInfo,
 } from '@modules/assessment/assessment-scoring.util';
 import { StoreService } from '@modules/store/store.service';
-import { REPORT_FORMATS, type ReportFormat } from './dto/report-format.dto';
+import { REPORT_FORMATS, type ReportFormat } from '@common/dto/export-format.dto';
 import { buildOverviewReportWorkbook, buildRoundReportWorkbook } from './report-excel.util';
 import { buildOverviewReportPdf, buildRoundReportPdf } from './report-pdf.util';
 import {

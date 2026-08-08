@@ -48,6 +48,19 @@ export const ERROR_CODES = {
     QUESTION_NOT_FOUND: 'ASSESS_007',
   },
 
+  // Pitching (judge scoring forms)
+  PITCH: {
+    NOT_FOUND: 'PITCH_001',
+    DUPLICATE: 'PITCH_002',
+    INVALID_STATE: 'PITCH_003',
+    SUBMITTED: 'PITCH_004',
+    NOT_ALL_SCORED: 'PITCH_005',
+    SCORE_OUT_OF_RANGE: 'PITCH_006',
+    CRITERION_NOT_FOUND: 'PITCH_007',
+    MISSING_MINIMUM_INPUTS: 'PITCH_008',
+    INVALID_RECOMMENDATION: 'PITCH_009',
+  },
+
   // News / announcements
   NEWS: {
     NOT_FOUND: 'NEWS_001',

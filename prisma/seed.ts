@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type PitchingRound } from '@prisma/client';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 
 const prisma = new PrismaClient({ adapter: new PrismaMariaDb(process.env.DATABASE_URL as string) });
@@ -172,9 +172,318 @@ async function seedStoreTypes(): Promise<void> {
   console.log(`Seeded ${STORE_TYPES.length} store types.`);
 }
 
+interface PitchingCriterionSeed {
+  id: number;
+  round: PitchingRound;
+  code: string;
+  section: string | null;
+  title: string;
+  guideline: string;
+  maxScore: number;
+}
+
+// Transcribed from the two paper forms. Ids are pinned per round (1xx / 2xx) so
+// a stored PitchingScore never points at a different criterion; adding a row
+// means taking the next free id in that block, never renumbering.
+const PITCHING_CRITERIA: PitchingCriterionSeed[] = [
+  {
+    id: 101,
+    round: 'PITCH_DECK',
+    code: '1',
+    section: null,
+    title: 'แนะนำร้านและข้อมูลพื้นฐาน',
+    guideline:
+      'บอกได้ชัดเจนว่าร้านคือใคร ชื่อร้าน โลโก้ ที่ตั้ง ประเภทอาหาร อายุร้าน จำนวนพนักงาน และภาพรวมกิจการ',
+    maxScore: 5,
+  },
+  {
+    id: 102,
+    round: 'PITCH_DECK',
+    code: '2',
+    section: null,
+    title: 'จุดแข็งและอัตลักษณ์ของร้าน',
+    guideline:
+      'มี USP ชัดเจน เมนูเด่นมีเอกลักษณ์ ใช้วัตถุดิบท้องถิ่นหรือเรื่องเล่าที่สร้างความแตกต่างจากคู่แข่ง',
+    maxScore: 15,
+  },
+  {
+    id: 103,
+    round: 'PITCH_DECK',
+    code: '3',
+    section: null,
+    title: 'ตัวเลขการเงินปัจจุบัน',
+    guideline:
+      'นำเสนอรายได้ต่อเดือน Food Cost กำไรสุทธิ หรือต้นทุนสำคัญอย่างตรงไปตรงมา มีความเข้าใจตัวเลขของร้าน',
+    maxScore: 15,
+  },
+  {
+    id: 104,
+    round: 'PITCH_DECK',
+    code: '4',
+    section: null,
+    title: 'ลูกค้าและตลาด',
+    guideline:
+      'ระบุกลุ่มลูกค้าหลัก ช่องทางขายปัจจุบัน พฤติกรรมลูกค้า และกลุ่มตลาดใหม่ที่อยากขยายได้ชัดเจน',
+    maxScore: 10,
+  },
+  {
+    id: 105,
+    round: 'PITCH_DECK',
+    code: '5',
+    section: null,
+    title: 'แผนทำร้านให้แข็งแรง',
+    guideline:
+      'มีแผนพัฒนาระบบร้าน เช่น SOP ต้นทุน เมนู การบริการ และมีเป้าหมายยอดขายหรือเป้าหมายพัฒนาใน 3–6 เดือน',
+    maxScore: 15,
+  },
+  {
+    id: 106,
+    round: 'PITCH_DECK',
+    code: '6',
+    section: null,
+    title: 'ไอเดียผลิตภัณฑ์ที่อยากต่อยอด',
+    guideline:
+      'ระบุเมนูหรือผลิตภัณฑ์ที่ต้องการพัฒนาได้ชัดเจน มีความน่าสนใจ มีตลาดเป้าหมาย และมีโอกาสต่อยอดเชิงพาณิชย์',
+    maxScore: 10,
+  },
+  {
+    id: 107,
+    round: 'PITCH_DECK',
+    code: '7',
+    section: null,
+    title: 'ศักยภาพการขยายธุรกิจ',
+    guideline:
+      'มองเห็นทิศทางการเติบโต เช่น สาขา แฟรนไชส์ Modern Trade เดลิเวอรี ออกบูธ หรือส่งออกอย่างสมเหตุสมผล',
+    maxScore: 10,
+  },
+  {
+    id: 108,
+    round: 'PITCH_DECK',
+    code: '8',
+    section: null,
+    title: 'ทีมและความพร้อมของผู้ประกอบการ',
+    guideline:
+      'ทีมมีประสบการณ์ มีความเข้าใจธุรกิจ พร้อมเรียนรู้ ปรับตัว และลงมือพัฒนาร้านต่อเนื่อง',
+    maxScore: 10,
+  },
+  {
+    id: 109,
+    round: 'PITCH_DECK',
+    code: '9',
+    section: null,
+    title: 'สิ่งที่ต้องการจากโครงการ',
+    guideline:
+      'ระบุความต้องการความช่วยเหลือได้ตรงจุด เช่น R&D บรรจุภัณฑ์ มาตรฐาน อย. การเงิน การตลาด หรือช่องทางขาย',
+    maxScore: 5,
+  },
+  {
+    id: 110,
+    round: 'PITCH_DECK',
+    code: '10',
+    section: null,
+    title: 'เหตุผลที่ควรได้รับคัดเลือก',
+    guideline:
+      'สื่อสารได้ชัดเจนว่าทำไมร้านนี้ควรไปต่อ มีความมุ่งมั่น มีเป้าหมายวัดผลได้จริงใน 3 เดือน',
+    maxScore: 5,
+  },
+
+  {
+    id: 201,
+    round: 'ACCELERATION',
+    code: '1.1',
+    section: 'A',
+    title: 'ผล Score Card 8 มิติ',
+    guideline: '10 = 36–40, 8 = 33–35, 6 = 30–32, 0–5 = ต่ำกว่า 30 (ไม่ผ่านขั้นต่ำ)',
+    maxScore: 10,
+  },
+  {
+    id: 202,
+    round: 'ACCELERATION',
+    code: '1.2',
+    section: 'A',
+    title: 'ระบบหลังบ้านเป็นมาตรฐาน',
+    guideline:
+      'SOP/สูตรมาตรฐาน ต้นทุน-ราคาขาย บัญชีและสต๊อกที่ใช้จริง: 9–10 = ครบ/ตรวจสอบได้, 6–8 = มีเกือบครบ, 3–5 = มีบางส่วน, 0–2 = ไม่มีหลักฐาน',
+    maxScore: 10,
+  },
+  {
+    id: 203,
+    round: 'ACCELERATION',
+    code: '2.1',
+    section: 'A',
+    title: 'นำความรู้ไปปรับใช้จริง',
+    guideline:
+      'มีหลักฐานปรับราคา ต้นทุน เมนู กระบวนการ บริการหรือการตลาด: 7–8 = ชัดหลายด้าน, 4–6 = ชัดบางด้าน, 1–3 = เริ่มดำเนินการ, 0 = ไม่มี',
+    maxScore: 8,
+  },
+  {
+    id: 204,
+    round: 'ACCELERATION',
+    code: '2.2',
+    section: 'A',
+    title: 'บันทึกข้อมูลธุรกิจสม่ำเสมอ',
+    guideline:
+      'ยอดขาย ต้นทุน กำไร เงินสดหรือสต๊อก: 5–6 = สม่ำเสมอและใช้ตัดสินใจ, 3–4 = ค่อนข้างต่อเนื่อง, 1–2 = ไม่สม่ำเสมอ, 0 = ไม่มี',
+    maxScore: 6,
+  },
+  {
+    id: 205,
+    round: 'ACCELERATION',
+    code: '2.3',
+    section: 'A',
+    title: 'เข้าร่วมและส่งงานมีคุณภาพ',
+    guideline:
+      '6 = ≥95% และคุณภาพดี, 4–5 = 90–94% และงานครบ, 0–3 = ต่ำกว่า 90%/งานไม่ครบ (ไม่ผ่านขั้นต่ำ)',
+    maxScore: 6,
+  },
+  {
+    id: 206,
+    round: 'ACCELERATION',
+    code: '3.1',
+    section: 'B',
+    title: 'Market Validation',
+    guideline:
+      'หลักฐานยอดขายทดลอง การสั่งซื้อซ้ำ แบบสอบถาม ลูกค้าทดลอง/หนังสือแสดงความสนใจ: 7–8 = ชัดหลายแหล่ง, 4–6 = เพียงพอ, 1–3 = สมมติฐาน, 0 = ไม่มี',
+    maxScore: 8,
+  },
+  {
+    id: 207,
+    round: 'ACCELERATION',
+    code: '3.2',
+    section: 'B',
+    title: 'กลุ่มเป้าหมายและช่องทางขาย',
+    guideline:
+      'ลูกค้า ขนาด/พฤติกรรมตลาด ช่องทางและแผนเข้าถึง: 5–6 = ชัด/สอดคล้อง, 3–4 = ค่อนข้างชัด, 1–2 = ยังกว้าง, 0 = ไม่ชัด',
+    maxScore: 6,
+  },
+  {
+    id: 208,
+    round: 'ACCELERATION',
+    code: '3.3',
+    section: 'B',
+    title: 'จุดขายและความแตกต่าง',
+    guideline:
+      'USP/คุณค่าที่ลูกค้าได้รับ อัตลักษณ์หรือข้อได้เปรียบ: 5–6 = แตกต่างชัด, 3–4 = มีจุดต่าง, 1–2 = ใกล้คู่แข่ง, 0 = ไม่ระบุ',
+    maxScore: 6,
+  },
+  {
+    id: 209,
+    round: 'ACCELERATION',
+    code: '4.1',
+    section: 'B',
+    title: 'กระบวนการผลิตทำซ้ำได้',
+    guideline:
+      'สูตรมาตรฐาน ขั้นตอนควบคุมคุณภาพ จุดวิกฤต/ผู้รับผิดชอบ: 7–8 = ครบและทดลองใช้, 4–6 = มีระบบส่วนใหญ่, 1–3 = พึ่งบุคคล, 0 = ไม่มี',
+    maxScore: 8,
+  },
+  {
+    id: 210,
+    round: 'ACCELERATION',
+    code: '4.2',
+    section: 'B',
+    title: 'ขยายกำลังผลิตได้',
+    guideline:
+      'วัตถุดิบ เครื่องมือ พื้นที่ บุคลากรและกำลังผลิต: 4 = พร้อม, 3 = มีแผนชัด, 1–2 = มีข้อจำกัด, 0 = ไม่มีแผน',
+    maxScore: 4,
+  },
+  {
+    id: 211,
+    round: 'ACCELERATION',
+    code: '4.3',
+    section: 'B',
+    title: 'ความพร้อมด้านมาตรฐาน',
+    guideline:
+      'สถานะและแผน GMP/HACCP/อย. หรือมาตรฐานที่เกี่ยวข้อง พร้อมเวลา/ผู้รับผิดชอบ: 5 = พร้อม/ดำเนินการ, 3–4 = แผนชัด, 1–2 = แผนกว้าง, 0 = ไม่มี',
+    maxScore: 5,
+  },
+  {
+    id: 212,
+    round: 'ACCELERATION',
+    code: '4.4',
+    section: 'B',
+    title: 'บรรจุภัณฑ์เหมาะสม',
+    guideline:
+      'เหมาะกับสินค้า อายุสินค้า ขนส่ง ฉลาก ต้นทุนและภาพลักษณ์: 3 = มีต้นแบบเหมาะสม, 2 = แนวทางชัด, 1 = แนวคิดเบื้องต้น, 0 = ไม่มี',
+    maxScore: 3,
+  },
+  {
+    id: 213,
+    round: 'ACCELERATION',
+    code: '5.1',
+    section: 'B',
+    title: 'แผนธุรกิจและยอดขายเติบโต',
+    guideline:
+      'เป้าหมายยอดขาย ช่องทาง สมมติฐานและระยะเวลา: 5–6 = ชัด/วัดผลได้, 3–4 = สมเหตุผลแต่ข้อมูลยังไม่ครบ, 1–2 = กว้าง, 0 = ไม่มี',
+    maxScore: 6,
+  },
+  {
+    id: 214,
+    round: 'ACCELERATION',
+    code: '5.2',
+    section: 'B',
+    title: 'รายได้ ต้นทุน กำไรและเงินสด',
+    guideline:
+      'ประมาณการเชื่อมกับตลาด/กำลังผลิต ระบุเงินลงทุนและทุนหมุนเวียน: 5–6 = ครบ/ตรวจสอบได้, 3–4 = มีข้อมูลหลัก, 1–2 = ไม่ครบ, 0 = ไม่มี',
+    maxScore: 6,
+  },
+  {
+    id: 215,
+    round: 'ACCELERATION',
+    code: '5.3',
+    section: 'B',
+    title: 'Unit Economics',
+    guideline:
+      'กำไรต่อหน่วย/Contribution Margin เป็นบวกหรือมีแผนให้เป็นบวก รวมจุดคุ้มทุน: 5–6 = บวก/มีหลักฐาน, 3–4 = แนวโน้มบวก, 1–2 = เสี่ยง, 0 = ไม่คำนวณ',
+    maxScore: 6,
+  },
+  {
+    id: 216,
+    round: 'ACCELERATION',
+    code: '5.4',
+    section: 'B',
+    title: 'แผนใช้วงเงินและความเสี่ยง',
+    guideline:
+      'รายการใช้จ่ายเชื่อมกับผลลัพธ์และมีมาตรการความเสี่ยง: 2 = ชัด, 1 = พอใช้, 0 = ไม่ชัด',
+    maxScore: 2,
+  },
+];
+
+async function seedPitchingCriteria(): Promise<void> {
+  // Both forms are scored out of 100 — a round whose maxScores no longer sum to
+  // 100 would silently rescale every stored total against the paper form.
+  for (const round of ['PITCH_DECK', 'ACCELERATION'] as const) {
+    const total = PITCHING_CRITERIA.filter((c) => c.round === round).reduce(
+      (sum, c) => sum + c.maxScore,
+      0,
+    );
+    if (total !== 100) throw new Error(`${round} criteria must sum to 100, got ${total}`);
+  }
+
+  let sortOrder = 0;
+  for (const criterion of PITCHING_CRITERIA) {
+    sortOrder += 1;
+    const data = {
+      round: criterion.round,
+      code: criterion.code,
+      section: criterion.section,
+      title: criterion.title,
+      guideline: criterion.guideline,
+      maxScore: criterion.maxScore,
+      sortOrder,
+    };
+    await prisma.pitchingCriterion.upsert({
+      where: { id: criterion.id },
+      update: data,
+      create: { id: criterion.id, ...data },
+    });
+  }
+  console.log(`Seeded ${PITCHING_CRITERIA.length} pitching criteria.`);
+}
+
 async function main(): Promise<void> {
   await seedProvinces();
   await seedStoreTypes();
+  await seedPitchingCriteria();
 
   const totalWeight = DIMENSIONS.reduce((sum, d) => sum + d.weight, 0);
   const totalQuestions = DIMENSIONS.reduce((sum, d) => sum + d.questions.length, 0);

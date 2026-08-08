@@ -43,6 +43,69 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 
 ## Known Sync Points (as of 2026-07)
 
+- **Pitching narrowed to the judging panel, and JUDGE became assignment-scoped
+  (2026-08-08).** `PITCHING_READ_ROLES` is now `SUPER_ADMIN`, `ADMIN`, `JUDGE`
+  only — ASSESSOR and MENTOR lost it, so the web's `ROLE_PERMISSIONS`
+  must drop `pitching:read` from both and `/pitching` carries
+  `allowedRoles`. **Breaking** for any client that showed those roles a pitching
+  link. `JUDGE` joined `ASSIGNMENT_SCOPED_ROLES`, which is a wider change than it
+  looks: `GET /stores`, `GET /stores/:id` and every `/dashboard/*` card are now
+  narrowed for a judge, `PATCH /users/:id/assigned-stores` accepts one (so the
+  web's assign dialog needs a judge mode), and a judge with no assignments gets
+  an empty directory — the intended state, not a bug. Web mirrors: `ROLE_DATA_SCOPES.JUDGE`
+  is `ASSIGNED`, and the MSW store/dashboard/user handlers narrow the same way.
+- **Pitching exports (2026-08-08), additive.** `GET /pitching/summary/export` and
+  `GET /pitching/stores/:storeId/export`, both `format=xlsx|pdf`, same access as
+  their read twins. The ranking export ignores `page`/`limit` and carries the
+  whole round, exactly like `/reports/rounds/:round/stores/export` — the web must
+  say so next to the button. Downloads must go through the axios client with
+  `responseType: 'blob'`; an `<a href>` arrives without the in-memory bearer
+  token and 401s.
+- **The four placeholder analytics surfaces are gone (2026-08-08). Breaking.**
+  `GET /analytics/:storeId` no longer carries `aiAnalysis`, `mentorRecommendations`
+  or `incubationStatus`, and `GET /analytics/:storeId/action-plans` was removed
+  outright (it answered `[]` for every store). All four existed only because no
+  LLM-narrative, mentor-note, incubation-status or IDP data model does; every
+  client rendered a permanent empty state off them. A client still requesting
+  the action-plans path now gets a 404. Web mirrors: the four cards, their text
+  constants, `IncubationStatus` / `ActionPlan` / `IDPPhase` types,
+  `analyticsService.getActionPlans`, `useActionPlans`, the `actionPlans` query
+  key and the MSW handler are all deleted. `kpis.incubationReadiness` is
+  **unaffected** — that is the IRS and it stays. The project brief
+  (`docs/ระบบ THAI-RAP…docx` §13) does ask for all four *in the per-store
+  Restaurant Survival Report*, so this is a deletion of dead dashboard surfaces,
+  not a decision that the programme never needs them — building them back means
+  building the data models first.
+- **`trend.series[].actualCount` is gone (2026-08-08). Breaking.** The web drew
+  the line solid up to it and dashed after, labelled เป้าหมาย (ประมาณการ) —
+  but nothing was ever projected: the dashed part was either absent (`null`
+  rounds cannot be drawn) or real measured scores mislabelled as a forecast
+  after a gap. No projection appears anywhere in the brief. A round with no
+  submitted assessment is now simply a gap in one line.
+- **`analytics.kpis.incubationReadiness` is no longer always `null` (2026-08-08).**
+  It is the IRS, and a web type declaring it `null` will not typecheck against a
+  number. See `spec/06-analytics.md` for the formula and when it stays null.
+- `ExportReportDto` / `ReportFormat` moved from `modules/report/dto/` to
+  `@common/dto/export-format.dto`, and the PDF/Excel primitives to
+  `@shared/pdf-doc.util` / `@shared/excel-sheet.util`. Internal only — no wire
+  change — but a new export route must build on those rather than re-declaring
+  the MIME type, the Sarabun font registration or the header helpers.
+- **`/pitching/*` is new (2026-08-08)** and additive — nothing existing changed
+  wire format. It is the judges' scoring forms for the two rounds in
+  `docs/แบบประเมิน Pitch Deck…` and `docs/แบบประเมิน_Incubation_สู่_Acceleration…`;
+  `spec/09-pitching.md` is the contract. Four enums are new and mirrored on the
+  web (`PitchingRound`, `PitchingStatus`, `PitchingRecommendation`, plus the
+  computed `PitchingLevel`, which is derived in the service and is not a Prisma
+  enum). Two role lists are new and neither matches the assessment ones —
+  `PITCHING_READ_ROLES` and `PITCHING_WRITE_ROLES` are both JUDGE plus the admin
+  pair (see the 2026-08-08 narrowing above; they were wider on the day the module
+  landed). **Submitting a form never writes `Store.status`**; a web
+  change that starts advancing a store off a pitching result is a two-repo
+  decision, not a UI tweak. The criteria are seeded master data with pinned ids
+  (`101–110`, `201–216`) — the web must render `GET /pitching/criteria`, never
+  a hardcoded copy of the ten pitch-deck rows, or a reworded criterion silently
+  disagrees with the stored score it labels.
+
 - **`analytics.radar` carries one series per submitted round, not the compared
   pair** (2026-07-30). `AnalyticsService.buildRadar` emits T0→T3 order and skips
   a round with no `SUBMITTED`/`APPROVED` assessment, so `series.length` is 0–4
@@ -66,7 +129,7 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   `scoresByDimension` map keyed by dimension id, plus cohort averages. It is
   **ADMIN / SUPER_ADMIN only** (`isAdminRole`) — narrower than the rest of
   `/reports`, because it is the one report that puts one store's scores in front
-  of another store's people; ENTREPRENEUR / ASSESSOR / MENTOR / ME_TEAM get 403
+  of another store's people; ENTREPRENEUR / ASSESSOR / MENTOR get 403
   `PERM_001` even though they read their own round report fine. The
   `StoreService.findAccessibleStoreIds()` narrowing stays in the service (it
   resolves to `null` for admins) so the query is still scoped if that gate ever
@@ -269,13 +332,13 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   `useAssessment` — the 403 sends the whole page to `/403`.
 - The web scoring page is staff-only: `ROUTE_PERMISSIONS` for `/assessment`
   carries `allowedRoles: [SUPER_ADMIN, ADMIN, ASSESSOR, MENTOR]`, and
-  ENTREPRENEUR / ME_TEAM hold no `assessment:read` at all — they read results
+  ENTREPRENEUR holds no `assessment:read` at all — it reads results
   through `/reports` and `/analytics`. The API is deliberately *not* that
   narrow: it still answers `GET /assessments*` for those roles (scoped, see
   below), so the restriction is a UX boundary, not an API one.
 - Assessment and report **reads** answer to `ASSESSMENT_READ_ROLES`
   (`common/constants/role.const.ts`): SUPER_ADMIN, ADMIN, ASSESSOR, MENTOR,
-  ME_TEAM, ENTREPRENEUR. JUDGE and VIEWER get 403 `PERM_001` from every
+  ENTREPRENEUR. JUDGE and VIEWER get 403 `PERM_001` from every
   `/assessments*`, `/assessment/:storeId/history` and `/reports/*` endpoint,
   exports included. VIEWER is self-registerable and ACTIVE on signup, so an
   ungated read there published every store's scores to anyone on the internet.

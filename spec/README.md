@@ -3,7 +3,7 @@
 ระบบ THAI-RAP Restaurant Survival Diagnostic System
 NestJS 10 + Prisma 5 + MySQL | Auth: JWT (access token + refresh cookie)
 
-> This spec describes **implemented endpoints only** — it is kept in sync with the controllers under `src/modules/`. Modules that are planned but not built (pitching, ranking, IDP / mentoring log, field audit, portfolio) have no spec file here.
+> This spec describes **implemented endpoints only** — it is kept in sync with the controllers under `src/modules/`. Modules that are planned but not built (ranking, IDP / mentoring log, field audit, portfolio) have no spec file here.
 
 ---
 
@@ -20,6 +20,7 @@ NestJS 10 + Prisma 5 + MySQL | Auth: JWT (access token + refresh cookie)
 | [06-analytics.md](06-analytics.md) | Analytics | KPIs, radar, trend, action plans, export |
 | [07-dashboard.md](07-dashboard.md) | Dashboard | KPIs, province charts, top 20, funnel, store scores, activities, reports status |
 | [08-news.md](08-news.md) | News | list, detail, create, edit, delete |
+| [09-pitching.md](09-pitching.md) | Pitching (judge scoring forms) | criteria, list, ranking, store report, create, patch, score, submit |
 
 ---
 
@@ -109,7 +110,6 @@ GET    /reports/stores/:storeId/overview/export
 GET    /analytics/:storeId
 GET    /analytics/:storeId/radar
 GET    /analytics/:storeId/trend
-GET    /analytics/:storeId/action-plans
 GET    /analytics/:storeId/export
 ```
 
@@ -134,6 +134,20 @@ POST   /news        [ADMIN]
 PATCH  /news/:id    [ADMIN]
 DELETE /news/:id    [ADMIN]
 ```
+
+### Pitching `/api/v1/pitching`
+```
+GET    /pitching/criteria
+GET    /pitching
+GET    /pitching/summary
+GET    /pitching/stores/:storeId
+GET    /pitching/:id
+POST   /pitching                            [JUDGE / ADMIN]
+PATCH  /pitching/:id                        [JUDGE / ADMIN]
+PUT    /pitching/:id/scores/:criterionId    [JUDGE / ADMIN]
+POST   /pitching/:id/submit                 [JUDGE / ADMIN]
+```
+No `DELETE`. Submitting never writes `Store.status`.
 
 ---
 

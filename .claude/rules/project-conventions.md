@@ -143,11 +143,15 @@ Store access rules:
   scoring page. Add a role to one of the two and you must add it to the other —
   and to `ASSIGNMENT_SCOPED_ROLES`, which is also what `UserService.assignStores`
   checks before it will write a list at all.
-- **JUDGE / ME_TEAM / VIEWER** read every store; `Store.assignedUsers`
-  is not a filter for them (nothing assigns stores to those roles).
+- **JUDGE** is assignment-scoped too, and for the same reason ASSESSOR is: a
+  judging panel is assembled per store, so the assignment list is the whole of
+  what it may open, pitch and all. It joined `ASSIGNMENT_SCOPED_ROLES` with the
+  pitching module.
+- **VIEWER** reads every store; `Store.assignedUsers` is not a filter for it
+  (nothing assigns stores to that role).
 - Store aggregate stats (`GET /stores/stats`) are limited to **ADMIN and
   ENTREPRENEUR only** — matches the roles that can open the web `/stores` page
-  (`ROUTE_PERMISSIONS` in the web repo). ASSESSOR/MENTOR/JUDGE/ME_TEAM get 403
+  (`ROUTE_PERMISSIONS` in the web repo). ASSESSOR/MENTOR/JUDGE get 403
   `PERM_001`, even though they can read individual stores.
 
 Never trust role from request body. Always use `@CurrentUser()` JWT payload.

@@ -15,7 +15,6 @@ enum Role {
   MENTOR
   ENTREPRENEUR
   JUDGE
-  ME_TEAM
   // ผู้ใช้ทั่วไป — reads only the store fields the project marks disclosable.
   VIEWER
 }
@@ -85,6 +84,30 @@ enum Severity {
   CRITICAL
 }
 
+// The two judging rounds in the programme's own paper forms:
+// PITCH_DECK   = แบบประเมิน Pitch Deck เพื่อคัดเลือกเข้า Incubation (10 หัวข้อ)
+// ACCELERATION = แบบประเมินคัดเลือก Incubation สู่ Acceleration (หมวด A + B)
+// Both are scored out of 100 but share no criterion — the round decides which
+// set of PitchingCriterion rows a form carries.
+enum PitchingRound {
+  PITCH_DECK
+  ACCELERATION
+}
+
+enum PitchingStatus {
+  DRAFT
+  SUBMITTED
+}
+
+// ความเห็นสรุปของกรรมการ. MINIMUM_NOT_MET exists on the ACCELERATION form only
+// (ส่วนที่ 6) — the PITCH_DECK form has no minimum condition to fail.
+enum PitchingRecommendation {
+  SELECTED
+  WAITING_LIST
+  MINIMUM_NOT_MET
+  NOT_SELECTED
+}
+
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 model User {
@@ -104,6 +127,7 @@ model User {
   assignedStores   Store[]           @relation("AssignedAssessor")
   ownedStores      Store[]           @relation("StoreOwner")
   authoredNews     News[]            @relation("NewsAuthor")
+  pitchings        Pitching[]        @relation("PitchingJudge")
 }
 
 // ประชาสัมพันธ์ — the announcements the dashboard activity feed renders.
@@ -183,6 +207,7 @@ model Store {
   assessments   Assessment[]
   documents     StoreDocument[]
   assignedUsers User[]          @relation("AssignedAssessor")
+  pitchings     Pitching[]
 
   // province leads because it is the selective one and is filtered on its own
   // by the province-cohort aggregate in sumRawScoreByQuestion; status extends
@@ -298,6 +323,98 @@ model RedFlag {
   resolved         Boolean     @default(false)
 
   assessment Assessment @relation(fields: [assessmentId], references: [id])
+}
+
+// ─── Pitching ─────────────────────────────────────────────────────────────────
+
+// The scoring rows of the two paper forms, seeded like Dimension/Question.
+// Ids are fixed and prefixed by round (1xx = PITCH_DECK, 2xx = ACCELERATION) so
+// a stored PitchingScore keeps pointing at the same criterion forever — the
+// same reason Question.id is pinned. maxScore differs per row (5/10/15 on the
+// pitch deck form, 2–10 on the acceleration one); Σ maxScore per round is 100.
+model PitchingCriterion {
+  id        Int           @id
+  round     PitchingRound
+  // "1".."10" on the pitch deck form, "1.1".."5.4" on the acceleration one —
+  // printed on the paper form, so it is what a judge cross-checks against.
+  code      String
+  // หมวด A / หมวด B on the acceleration form; null on the pitch deck form,
+  // which has no sections.
+  section   String?
+  title     String
+  guideline String        @db.Text
+  maxScore  Int
+  sortOrder Int
+
+  scores PitchingScore[]
+
+  @@unique([round, code])
+  @@index([round, sortOrder])
+}
+
+// One judge's completed form for one store in one round. Submitting it changes
+// nothing outside this table — Store.status is deliberately never written from
+// here, because selection is a committee decision taken on the averaged scores,
+// not a consequence of any single judge saving a form.
+model Pitching {
+  id         String         @id @default(cuid())
+  storeId    String
+  round      PitchingRound
+  judgeId    String
+  status     PitchingStatus @default(DRAFT)
+  // Frozen Σ of the criterion scores at submit; null while still a draft.
+  totalScore Float?
+
+  // ── ACCELERATION only ──────────────────────────────────────────────────────
+  // ผลิตภัณฑ์/เมนูต้นแบบ on the form header.
+  prototypeProduct String?
+  // เงื่อนไขขั้นต่ำ: Score Card 8 มิติ (x/40) and เข้าร่วม/ส่งงาน (%). Kept as the
+  // judge's own reading rather than derived from Assessment, because the paper
+  // form is filled from the evidence file in the room and must still reproduce
+  // what was decided there. Pass/fail is computed, never stored.
+  scoreCardTotal   Int?
+  participationPct Float?
+  // หลักฐานที่ตรวจสอบ — the checklist keys the judge ticked.
+  evidenceChecked  Json    @default("[]")
+
+  // ความเห็นของคณะกรรมการ, keyed by the prompts of that round's form
+  // (PITCHING_COMMENT_KEYS). A map rather than columns because the two rounds
+  // ask different questions and neither set is scored.
+  comments             Json                    @default("{}")
+  recommendation       PitchingRecommendation?
+  recommendationReason String?                 @db.Text
+  // ☐ ข้าพเจ้าไม่มีส่วนได้เสียกับกิจการที่ประเมิน (acceleration form).
+  noConflictOfInterest Boolean                 @default(false)
+  // วันที่ประเมิน as written on the form, which is not the row's createdAt.
+  evaluatedAt          DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  submittedAt DateTime?
+
+  store  Store           @relation(fields: [storeId], references: [id])
+  judge  User            @relation("PitchingJudge", fields: [judgeId], references: [id])
+  scores PitchingScore[]
+
+  // One form per judge per store per round — a judge revises their own row
+  // rather than filing a second one.
+  @@unique([storeId, round, judgeId])
+  // The report reads one cohort per call: every submitted form in a round.
+  @@index([round, status])
+}
+
+model PitchingScore {
+  id          String  @id @default(cuid())
+  pitchingId  String
+  criterionId Int
+  score       Int?
+  // หลักฐาน/ข้อสังเกต per row on the acceleration form; free notes on the other.
+  note        String? @db.Text
+
+  pitching  Pitching          @relation(fields: [pitchingId], references: [id], onDelete: Cascade)
+  criterion PitchingCriterion @relation(fields: [criterionId], references: [id])
+
+  @@unique([pitchingId, criterionId])
 }
 
 // A report is not stored: the list on the dashboard and the /reports page is

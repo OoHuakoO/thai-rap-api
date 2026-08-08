@@ -2,12 +2,12 @@ import { Controller, Get, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { CurrentUser } from '@common/decorators/current-user.decorator';
+import { EXPORT_CONTENT_TYPE } from '@common/dto/export-format.dto';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { DashboardService } from './dashboard.service';
 import { QueryProvinceComparisonDto } from './dto/query-province-comparison.dto';
 import { QueryTop20Dto } from './dto/query-top20.dto';
 
-const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const XLSX_FILENAME = 'store-round-scores.xlsx';
 
 @ApiTags('Dashboard')
@@ -59,13 +59,13 @@ export class DashboardController {
 
   @Get('store-scores/export')
   @ApiOperation({ summary: 'Download every store round score as an Excel workbook' })
-  @ApiProduces(XLSX_CONTENT_TYPE)
+  @ApiProduces(EXPORT_CONTENT_TYPE.xlsx)
   async exportStoreRoundScores(@CurrentUser() user: JwtPayload, @Res() res: Response) {
     const workbook = await this.dashboardService.exportStoreRoundScores(user);
 
     // @Res() opts this route out of TransformInterceptor's { success, data }
     // envelope — the client needs the raw binary, not JSON.
-    res.setHeader('Content-Type', XLSX_CONTENT_TYPE);
+    res.setHeader('Content-Type', EXPORT_CONTENT_TYPE.xlsx);
     res.setHeader('Content-Disposition', `attachment; filename="${XLSX_FILENAME}"`);
     res.send(workbook);
   }

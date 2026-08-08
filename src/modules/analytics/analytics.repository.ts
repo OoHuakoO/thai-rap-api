@@ -12,7 +12,9 @@ const roundSelect = {
   totalScore: true,
   submittedAt: true,
   updatedAt: true,
-  scores: { select: { rawScore: true, question: { select: { dimensionId: true } } } },
+  scores: {
+    select: { rawScore: true, question: { select: { dimensionId: true, questionNo: true } } },
+  },
   redFlags: true,
 } satisfies Prisma.AssessmentSelect;
 

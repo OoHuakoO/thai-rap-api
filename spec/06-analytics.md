@@ -6,7 +6,6 @@ One store's assessment results rendered for charts. Everything here reads the sa
 GET /analytics/:storeId?compare=T0vsT1[&province=]
 GET /analytics/:storeId/radar
 GET /analytics/:storeId/trend
-GET /analytics/:storeId/action-plans
 GET /analytics/:storeId/export?compare=T0vsT1[&province=]
 ```
 
@@ -47,7 +46,7 @@ Everything the store analytics page needs in one call.
   },
   "trend": {
     "xAxis": ["T0", "T1", "T2", "T3"],
-    "series": [{ "name": "ร้านอาหารสุขใจ", "data": [48.2, 61.5, null, null], "actualCount": 2 }]
+    "series": [{ "name": "ร้านอาหารสุขใจ", "data": [48.2, 61.5, null, null] }]
   },
   "strengths": [{ "dimensionId": 4, "name": "การตลาดและฐานลูกค้า", "score": 78.6 }],
   "weaknesses": [{ "dimensionId": 5, "name": "การเงิน ต้นทุน และกำไร", "score": 32.1 }],
@@ -61,10 +60,7 @@ Everything the store analytics page needs in one call.
       "recommendation": null,
       "resolved": false
     }
-  ],
-  "aiAnalysis": null,
-  "mentorRecommendations": [],
-  "incubationStatus": null
+  ]
 }
 ```
 
@@ -73,17 +69,19 @@ Everything the store analytics page needs in one call.
 - `improvementRate` = `(later − earlier) / earlier × 100`, `null` when either side is missing or the earlier score is 0.
 - `zone` is the later round's, falling back to the earlier one.
 - `rankInProject` ranks the compared round's cohort within `province` (the store's own unless overridden); `null` when this store has no assessment in that round. `totalStores` is that cohort's size.
-- `incubationReadiness` is **always `null`** — the full IRS needs a pitching score and no `PitchingScore` model exists yet.
+- `incubationReadiness` is the **IRS** of `project-conventions.md` §Ranking, computed by `computeIncubationReadiness()` (`analytics-scoring.util.ts`):
+
+  `T1 total × 0.40 + (T1 − T0) × 0.25 + PITCH_DECK judge average × 0.20 + mindset × 0.10 + evidence × 0.05`
+
+  Fixed on **T0/T1 whatever `compare` asks for** — it is the score incubation selection is made on, not a statistic about the pair on screen. `null` until T1 is submitted, because every term but the pitching one is read off that round. Mindset is Q47+Q48 normalised to 0–100, evidence is Q49; a store with no submitted pitching form contributes 0 for that term rather than voiding the score. The pitching average comes from `PitchingService.getStoreAverageScore()`, which takes no user — the analytics roles are a wider list than `PITCHING_READ_ROLES`, and one averaged number is all that crosses.
 
 **radar** — one series per **submitted round** in T0→T3 order, so `series.length` is 0–4 and a series name is a bare round. A round with no submitted assessment is skipped rather than sent as an all-null series. Do **not** index `series[0]`/`series[1]` as baseline/comparison.
 
-**trend** — always all four rounds on the x-axis, `null` for rounds with no submitted assessment. `actualCount` is the number of leading non-null points, i.e. where real data stops and the projection would start.
+**trend** — always all four rounds on the x-axis, `null` for rounds with no submitted assessment. Nothing is projected or extrapolated: a round the store has not sat is a gap in the line, not a forecast.
 
 **strengths / weaknesses** — the 3 highest and 3 lowest dimension percentages of the **later** compared round (falling back to the earlier one); `[]` when neither exists.
 
 **redFlags** — the flags of that same round, in full `RedFlag` shape. `recommendation` is always `null`.
-
-**aiAnalysis / mentorRecommendations / incubationStatus** are fixed at `null` / `[]` / `null`: no narrative, mentor-note or incubation data model exists. They are placeholders the frontend already renders an empty state for, not unfinished work.
 
 **Errors** — `403 PERM_001`, `404 STORE_001`, `422 VALID_002` (missing/invalid `compare`)
 
@@ -94,11 +92,6 @@ Just the `radar` object above. No query params — it answers every submitted ro
 
 ## GET /analytics/:storeId/trend
 Just the `trend` object above. No query params.
-
-## GET /analytics/:storeId/action-plans
-IDP action plans (D7 / D30 / D90).
-
-**Response 200** — `[]`, always. There is no IDP data model yet; the route exists so the page gets a 200 and an empty state instead of a 404. Access is still checked.
 
 ---
 

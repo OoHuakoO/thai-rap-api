@@ -1,13 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { Round } from '@prisma/client';
+import { PitchingRound, Round } from '@prisma/client';
 import { ForbiddenException } from '@common/exceptions/app.exception';
 import { ERROR_CODES, canReadAssessment } from '@constants/index';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
+import { PitchingService } from '@modules/pitching/pitching.service';
 import { StoreService } from '@modules/store/store.service';
 import { DimensionService, type DimensionWithMax } from '@modules/assessment/dimension.service';
 import { computeDimensionScores, getZone } from '@modules/assessment/assessment-scoring.util';
 import { AnalyticsRepository, type AnalyticsRoundRow } from './analytics.repository';
 import { buildAnalyticsWorkbook } from './analytics-excel.util';
+import { computeIncubationReadiness } from './analytics-scoring.util';
 import type { QueryAnalyticsDto } from './dto/query-analytics.dto';
 import type {
   AnalyticsDimensionHighlight,
@@ -24,6 +26,12 @@ import type {
 // another module's file for a value this small).
 const ALL_ROUNDS: Round[] = [Round.T0, Round.T1, Round.T2, Round.T3];
 
+// The IRS terms that read individual questions. Absolute question numbers, the
+// same load-bearing numbering as the red-flag ranges — see seed-data.md.
+const MINDSET_QUESTIONS = [47, 48] as const;
+const EVIDENCE_QUESTION = 49;
+const MAX_SCORE_PER_QUESTION = 4;
+
 const HIGHLIGHT_COUNT = 3;
 
 function round2(value: number): number {
@@ -36,6 +44,7 @@ export class AnalyticsService {
     private readonly analyticsRepo: AnalyticsRepository,
     private readonly dimensionService: DimensionService,
     private readonly storeService: StoreService,
+    private readonly pitchingService: PitchingService,
   ) {}
 
   async getStoreAnalytics(
@@ -61,6 +70,7 @@ export class AnalyticsService {
       compareRow,
       compareRound,
       query.province ?? store.province ?? undefined,
+      rows,
     );
 
     return {
@@ -71,9 +81,6 @@ export class AnalyticsService {
       strengths: this.buildHighlights(focusRow, dimensions, false),
       weaknesses: this.buildHighlights(focusRow, dimensions, true),
       redFlags: this.toRedFlags(focusRow),
-      aiAnalysis: null,
-      mentorRecommendations: [],
-      incubationStatus: null,
     };
   }
 
@@ -93,16 +100,6 @@ export class AnalyticsService {
     const store = await this.storeService.findAccessible(storeId, user);
     const rows = await this.analyticsRepo.findRoundsForStore(storeId);
     return this.buildTrend(store.name, rows);
-  }
-
-  // No IDP/action-plan data model exists yet (api-contract.md: "IDP and
-  // Mentoring Log... are separate pages that do not exist yet") — this exists
-  // so the route answers 200 with an empty list instead of 404, matching how
-  // the frontend already renders an empty state for it.
-  async getActionPlans(storeId: string, user: JwtPayload): Promise<[]> {
-    this.assertCanRead(user);
-    await this.storeService.findAccessible(storeId, user);
-    return [];
   }
 
   async exportAnalytics(
@@ -127,6 +124,7 @@ export class AnalyticsService {
     compareRow: AnalyticsRoundRow | undefined,
     compareRound: Round,
     province: string | undefined,
+    allRows: AnalyticsRoundRow[],
   ): Promise<AnalyticsKpis> {
     const t0Score = baseRow?.totalScore ?? null;
     const t1Score = compareRow?.totalScore ?? null;
@@ -136,7 +134,10 @@ export class AnalyticsService {
         : null;
     const zone = t1Score !== null ? getZone(t1Score) : t0Score !== null ? getZone(t0Score) : null;
 
-    const cohort = await this.analyticsRepo.findRankingCohort(compareRound, province);
+    const [cohort, incubationReadiness] = await Promise.all([
+      this.analyticsRepo.findRankingCohort(compareRound, province),
+      this.buildIncubationReadiness(storeId, allRows),
+    ]);
     const ranked = [...cohort].sort((a, b) => (b.totalScore ?? 0) - (a.totalScore ?? 0));
     const rankIndex = compareRow ? ranked.findIndex((row) => row.storeId === storeId) : -1;
 
@@ -147,8 +148,47 @@ export class AnalyticsService {
       zone,
       rankInProject: compareRow && rankIndex !== -1 ? rankIndex + 1 : null,
       totalStores: ranked.length,
-      incubationReadiness: null,
+      incubationReadiness,
     };
+  }
+
+  // IRS — the Incubation Readiness Score of project-conventions.md §Ranking:
+  //
+  //   T1 total × 0.40 + (T1 − T0) × 0.25 + pitching average × 0.20
+  //   + mindset × 0.10 + evidence × 0.05
+  //
+  // Fixed on T0/T1 whatever `compare` asks for: it is the score the incubation
+  // selection is made on, not a statistic about the pair the user is looking at.
+  // `null` until T1 is submitted, because every term but the pitching one is
+  // read off that round — a partial IRS would rank a store against others that
+  // had the whole formula applied.
+  //
+  // The pitching term is PITCH_DECK, the round that decides entry to incubation.
+  // Reading it here does not widen who may see a judge's work: it is one number
+  // averaged over the panel, and the roles that reach /analytics are a different
+  // (wider) list from PITCHING_READ_ROLES on purpose.
+  private async buildIncubationReadiness(
+    storeId: string,
+    rows: AnalyticsRoundRow[],
+  ): Promise<number | null> {
+    const t1 = rows.find((row) => row.round === Round.T1);
+    if (!t1?.totalScore) return null;
+
+    const pitchingAvgScore = await this.pitchingService.getStoreAverageScore(
+      storeId,
+      PitchingRound.PITCH_DECK,
+    );
+    const rawScoreOf = (questionNo: number): number =>
+      t1.scores.find((score) => score.question.questionNo === questionNo)?.rawScore ?? 0;
+
+    return computeIncubationReadiness({
+      t0Total: rows.find((row) => row.round === Round.T0)?.totalScore ?? 0,
+      t1Total: t1.totalScore,
+      pitchingAvgScore,
+      mindsetRawScores: MINDSET_QUESTIONS.map(rawScoreOf),
+      evidenceRawScore: rawScoreOf(EVIDENCE_QUESTION),
+      maxScorePerQuestion: MAX_SCORE_PER_QUESTION,
+    });
   }
 
   // Every submitted round, not the compared pair: the two dimension charts read
@@ -183,12 +223,10 @@ export class AnalyticsService {
   private buildTrend(storeName: string, rows: AnalyticsRoundRow[]): AnalyticsTrend {
     const byRound = new Map(rows.map((row) => [row.round, row]));
     const data = ALL_ROUNDS.map((round) => byRound.get(round)?.totalScore ?? null);
-    const firstGap = data.findIndex((value) => value === null);
-    const actualCount = firstGap === -1 ? data.length : firstGap;
 
     return {
       xAxis: ALL_ROUNDS,
-      series: [{ name: storeName, data, actualCount }],
+      series: [{ name: storeName, data }],
     };
   }
 

@@ -124,7 +124,7 @@ Any `Role` value is accepted by the DTO, `SUPER_ADMIN` included — the guard is
 ---
 
 ### PATCH /users/:id/assigned-stores
-Sets the assignment list an ASSESSOR scores against and a MENTOR reads against — the `ASSIGNED` data scope for both.
+Sets the assignment list an ASSESSOR scores against, a MENTOR reads against and a JUDGE pitches against — the `ASSIGNED` data scope for all three.
 
 **Body**
 ```json
@@ -135,7 +135,7 @@ The **complete** list, not a delta: an omitted store is revoked, `[]` clears eve
 **Response 200** — `UserResult` with the new `assignedStores`
 
 **Errors**
-- `400 USER_006` — Target is not an ASSESSOR or a MENTOR (`ASSIGNMENT_SCOPED_ROLES`)
+- `400 USER_006` — Target is not an ASSESSOR, a MENTOR or a JUDGE (`ASSIGNMENT_SCOPED_ROLES`)
 - `404 STORE_001` — At least one `storeId` doesn't exist (nothing is written)
 - `404 USER_001` — User not found
 

@@ -159,7 +159,7 @@ describe('UserService', () => {
     });
 
     it('should throw BadRequestException when the role takes no assignment', async () => {
-      repository.findById.mockResolvedValue({ ...mockUser, role: Role.JUDGE });
+      repository.findById.mockResolvedValue({ ...mockUser, role: Role.VIEWER });
 
       await expect(
         service.assignStores('user-1', { storeIds: ['s1'] }, superAdmin),
@@ -217,8 +217,23 @@ describe('UserService', () => {
       });
 
       await expect(
-        service.updateRole('user-1', { role: Role.JUDGE }, superAdmin),
+        service.updateRole('user-1', { role: Role.VIEWER }, superAdmin),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    // JUDGE joined ASSIGNMENT_SCOPED_ROLES with the pitching feature, so moving
+    // an assessor there keeps the assignments meaningful rather than orphaning
+    // them — the check is about the *target* role, not about churn.
+    it('should keep the assignments when moving between two assignment-scoped roles', async () => {
+      repository.findById.mockResolvedValue({
+        ...mockUser,
+        assignedStores: [{ id: 's1', code: 'RAP69-001', name: 'ร้าน ก' }],
+      });
+      repository.updateRole.mockResolvedValue({ ...mockUser, role: Role.JUDGE });
+
+      const result = await service.updateRole('user-1', { role: Role.JUDGE }, superAdmin);
+
+      expect(result.role).toBe(Role.JUDGE);
     });
 
     // ASSESSOR and MENTOR both resolve against Store.assignedUsers, so the list

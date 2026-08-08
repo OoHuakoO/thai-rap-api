@@ -5,15 +5,15 @@ import type { Response } from 'express';
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { PaginationDto } from '@common/dto/pagination.dto';
-import { DEFAULT_REPORT_FORMAT, ExportReportDto, type ReportFormat } from './dto/report-format.dto';
+import {
+  DEFAULT_REPORT_FORMAT,
+  EXPORT_CONTENT_TYPE,
+  ExportReportDto,
+} from '@common/dto/export-format.dto';
+import { sendFile, setFileHeaders } from '@shared/file-response.util';
 import { streamRoundMatrixWorkbook } from './report-excel.util';
 import { streamRoundMatrixPdf } from './report-pdf.util';
 import { ReportService } from './report.service';
-
-const CONTENT_TYPE: Record<ReportFormat, string> = {
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  pdf: 'application/pdf',
-};
 
 @ApiTags('Reports')
 @ApiBearerAuth()
@@ -35,7 +35,7 @@ export class ReportController {
 
   @Get('stores/:storeId/rounds/:round/export')
   @ApiOperation({ summary: 'Download the single-round report as Excel or PDF' })
-  @ApiProduces(CONTENT_TYPE.xlsx, CONTENT_TYPE.pdf)
+  @ApiProduces(EXPORT_CONTENT_TYPE.xlsx, EXPORT_CONTENT_TYPE.pdf)
   async exportRoundReport(
     @Param('storeId') storeId: string,
     @Param('round', new ParseEnumPipe(Round)) round: Round,
@@ -64,7 +64,7 @@ export class ReportController {
   @ApiOperation({
     summary: 'Download every store of the round as Excel or PDF — not the page the table is on',
   })
-  @ApiProduces(CONTENT_TYPE.xlsx, CONTENT_TYPE.pdf)
+  @ApiProduces(EXPORT_CONTENT_TYPE.xlsx, EXPORT_CONTENT_TYPE.pdf)
   async exportRoundMatrixReport(
     @Param('round', new ParseEnumPipe(Round)) round: Round,
     @Query() query: ExportReportDto,
@@ -90,7 +90,7 @@ export class ReportController {
 
   @Get('stores/:storeId/overview/export')
   @ApiOperation({ summary: 'Download the all-rounds report as Excel or PDF' })
-  @ApiProduces(CONTENT_TYPE.xlsx, CONTENT_TYPE.pdf)
+  @ApiProduces(EXPORT_CONTENT_TYPE.xlsx, EXPORT_CONTENT_TYPE.pdf)
   async exportOverviewReport(
     @Param('storeId') storeId: string,
     @Query() query: ExportReportDto,
@@ -101,16 +101,4 @@ export class ReportController {
     const file = await this.reportService.exportOverviewReport(storeId, format, user);
     sendFile(res, file, format, 'assessment-report-overview');
   }
-}
-
-// @Res() opts these routes out of TransformInterceptor's { success, data }
-// envelope — the client needs the raw binary, not JSON.
-function sendFile(res: Response, file: Buffer, format: ReportFormat, basename: string): void {
-  setFileHeaders(res, format, basename);
-  res.send(file);
-}
-
-function setFileHeaders(res: Response, format: ReportFormat, basename: string): void {
-  res.setHeader('Content-Type', CONTENT_TYPE[format]);
-  res.setHeader('Content-Disposition', `attachment; filename="${basename}.${format}"`);
 }

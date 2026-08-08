@@ -1,13 +1,10 @@
 import type { Writable } from 'node:stream';
-import { Workbook, stream, type Row, type Worksheet } from 'exceljs';
+import { Workbook, stream } from 'exceljs';
+import { SCORE_FORMAT, commitRow, formatDate, styleHeaderRow } from '@shared/excel-sheet.util';
 import { REPORT_ROUNDS } from './report.service';
 import type { OverviewReport, RoundMatrixExportSource, RoundReport } from './types/report.type';
 
 const { WorkbookWriter } = stream.xlsx;
-
-const HEADER_FILL_COLOR = 'FFF26B21';
-const HEADER_FONT_COLOR = 'FFFFFFFF';
-const SCORE_FORMAT = '0.00';
 
 const ROUND_SHEET_NAME = 'ผลการประเมิน';
 const QUESTION_SHEET_NAME = 'คะแนนรายข้อ';
@@ -56,36 +53,6 @@ const TEXT = {
   unresolvedFlags: 'สัญญาณเตือนที่ยังไม่แก้ไข',
   noData: '-',
 };
-
-function styleHeaderRow(sheet: Worksheet, rowNumber: number): void {
-  styleRow(sheet.getRow(rowNumber), 'header');
-}
-
-function styleRow(row: Row, style: 'header' | 'bold' | 'plain'): void {
-  if (style === 'plain') return;
-  if (style === 'bold') {
-    row.font = { bold: true };
-    return;
-  }
-  row.font = { bold: true, color: { argb: HEADER_FONT_COLOR } };
-  row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL_COLOR } };
-}
-
-// Streaming counterpart of addRow: a row must be styled and committed before
-// the next one is added, because committing is what flushes it to the response.
-function commitRow(
-  sheet: Worksheet,
-  cells: (string | number)[],
-  style: 'header' | 'bold' | 'plain' = 'plain',
-): void {
-  const row = sheet.addRow(cells);
-  styleRow(row, style);
-  row.commit();
-}
-
-function formatDate(value: Date | null): string {
-  return value ? value.toISOString().slice(0, 10) : TEXT.noData;
-}
 
 export async function buildRoundReportWorkbook(report: RoundReport): Promise<Buffer> {
   const workbook = new Workbook();

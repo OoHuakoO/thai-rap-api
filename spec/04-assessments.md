@@ -23,7 +23,7 @@ GET    /assessment/:storeId/history
 
 ## Access
 
-**Reads** — `ASSESSMENT_READ_ROLES`: SUPER_ADMIN, ADMIN, ASSESSOR, MENTOR, ME_TEAM, ENTREPRENEUR. JUDGE and VIEWER get `403 PERM_001` from every endpoint here. On top of the role gate, each read resolves the store through `StoreService.findAccessible()`, so an ENTREPRENEUR only reaches its own store's rounds and an ASSESSOR/MENTOR only its assignment list's.
+**Reads** — `ASSESSMENT_READ_ROLES`: SUPER_ADMIN, ADMIN, ASSESSOR, MENTOR, ENTREPRENEUR. JUDGE and VIEWER get `403 PERM_001` from every endpoint here. On top of the role gate, each read resolves the store through `StoreService.findAccessible()`, so an ENTREPRENEUR only reaches its own store's rounds and an ASSESSOR/MENTOR only its assignment list's.
 
 **Writes** — admin roles and ASSESSOR only (`WRITE_ROLES`). An ASSESSOR must additionally be assigned to the store (`assertAssignedToStore`); an assessor with no assignments can score nothing, which is the intended state. Admin roles bypass that check.
 

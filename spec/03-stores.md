@@ -8,14 +8,14 @@
 
 Every route needs a valid access token; there is no `@Public()` route in this module.
 
-| Action | SUPER_ADMIN / ADMIN | ASSESSOR / MENTOR | ENTREPRENEUR | JUDGE / ME_TEAM | VIEWER |
-|---|---|---|---|---|---|
-| List stores | ✓ all | ✓ assigned only | ✓ owned only | ✓ all | ✓ all, public fields |
-| Get store detail | ✓ any | ✓ assigned only | ✓ owned only | ✓ any | ✓ any, public fields |
-| Get stats | ✓ | 403 | ✓ | 403 | 403 |
-| Create store | ✓ (any owner) | 403 | ✓ (self as owner) | 403 | 403 |
-| Update / delete / uploads | ✓ any | 403 | ✓ own only | 403 | 403 |
-| Update status | ✓ | 403 | 403 | 403 | 403 |
+| Action | SUPER_ADMIN / ADMIN | ASSESSOR / MENTOR / JUDGE | ENTREPRENEUR | VIEWER |
+|---|---|---|---|---|
+| List stores | ✓ all | ✓ assigned only | ✓ owned only | ✓ all, public fields |
+| Get store detail | ✓ any | ✓ assigned only | ✓ owned only | ✓ any, public fields |
+| Get stats | ✓ | 403 | ✓ | 403 |
+| Create store | ✓ (any owner) | 403 | ✓ (self as owner) | 403 |
+| Update / delete / uploads | ✓ any | 403 | ✓ own only | 403 |
+| Update status | ✓ | 403 | 403 | 403 |
 
 Two different checks are at work:
 

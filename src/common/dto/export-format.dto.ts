@@ -7,6 +7,11 @@ export type ReportFormat = (typeof REPORT_FORMATS)[number];
 
 export const DEFAULT_REPORT_FORMAT: ReportFormat = 'xlsx';
 
+export const EXPORT_CONTENT_TYPE: Record<ReportFormat, string> = {
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pdf: 'application/pdf',
+};
+
 export class ExportReportDto {
   @ApiPropertyOptional({ enum: REPORT_FORMATS, default: DEFAULT_REPORT_FORMAT })
   @IsOptional()

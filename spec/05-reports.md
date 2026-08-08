@@ -13,9 +13,9 @@ GET /reports/stores/:storeId/overview/export
 
 ## Access
 
-Store-scoped reports answer `ASSESSMENT_READ_ROLES` (SUPER_ADMIN, ADMIN, ASSESSOR, MENTOR, ME_TEAM, ENTREPRENEUR) and resolve the store through `StoreService.findAccessible()` — so an ENTREPRENEUR reads its own store, an ASSESSOR/MENTOR its assignment list, and JUDGE/VIEWER get `403 PERM_001`. Exports included.
+Store-scoped reports answer `ASSESSMENT_READ_ROLES` (SUPER_ADMIN, ADMIN, ASSESSOR, MENTOR, ENTREPRENEUR) and resolve the store through `StoreService.findAccessible()` — so an ENTREPRENEUR reads its own store, an ASSESSOR/MENTOR its assignment list, and JUDGE/VIEWER get `403 PERM_001`. Exports included.
 
-**The cross-store matrix (`/rounds/:round/stores`) is ADMIN / SUPER_ADMIN only.** It is the one report that puts one store's scores in front of another store's people, so it is narrower than the rest: ENTREPRENEUR / ASSESSOR / MENTOR / ME_TEAM get `403 PERM_001` there even though they read their own round report fine.
+**The cross-store matrix (`/rounds/:round/stores`) is ADMIN / SUPER_ADMIN only.** It is the one report that puts one store's scores in front of another store's people, so it is narrower than the rest: ENTREPRENEUR / ASSESSOR / MENTOR get `403 PERM_001` there even though they read their own round report fine.
 
 `:round` is parsed by `ParseEnumPipe(Round)` — anything other than `T0`–`T3` is a `400 VALID_001` before the service runs.
 

@@ -40,8 +40,7 @@ A new account is created `PENDING` and cannot log in until a SUPER_ADMIN approve
 | Assessor | `ASSESSOR` | Scores the stores assigned to it |
 | Mentor / Coach | `MENTOR` | Reads the stores assigned to it; does not score |
 | Entrepreneur | `ENTREPRENEUR` | Its own stores only |
-| Judge | `JUDGE` | Pitching (module not built); reads stores, no assessment data |
-| M&E Team | `ME_TEAM` | Read-only across the programme |
+| Judge | `JUDGE` | Fills in the pitching forms for the stores assigned to it; no assessment data |
 | ผู้ใช้ทั่วไป | `VIEWER` | Public store fields only; no assessment data |
 
 Self-registerable roles (`SELF_REGISTERABLE_ROLES`): every role except `SUPER_ADMIN` and `ADMIN`.
@@ -57,6 +56,7 @@ Three roles are narrowed; every other role reads the whole programme. One resolv
 | `ENTREPRENEUR` | `Store.ownerId === user.sub` |
 | `ASSESSOR` | `Store.assignedUsers` — the SUPER_ADMIN-managed assignment list |
 | `MENTOR` | same assignment list |
+| `JUDGE` | same assignment list |
 | everyone else | all stores |
 
 Consequences:
@@ -66,13 +66,28 @@ Consequences:
 
 ### Who may read assessment data
 
-`ASSESSMENT_READ_ROLES` (`src/common/constants/role.const.ts`): `SUPER_ADMIN`, `ADMIN`, `ASSESSOR`, `MENTOR`, `ME_TEAM`, `ENTREPRENEUR`.
+`ASSESSMENT_READ_ROLES` (`src/common/constants/role.const.ts`): `SUPER_ADMIN`, `ADMIN`, `ASSESSOR`, `MENTOR`, `ENTREPRENEUR`.
 
 `JUDGE` and `VIEWER` get 403 `PERM_001` from every `/assessments*`, `/assessment/:storeId/history`, `/reports/*` and `/analytics/*` endpoint, exports included. It is an allow-list: a role added to the enum later reads nothing until it is named there.
 
 ### Who may write assessment data
 
 ADMIN roles and `ASSESSOR` only (`AssessmentService.WRITE_ROLES`). An ASSESSOR additionally has to be assigned to the store (`assertAssignedToStore`); admin roles bypass that.
+
+### Who may read / write pitching data
+
+Two separate lists in the same file, and neither matches the assessment ones:
+
+| | Roles |
+|---|---|
+| `PITCHING_READ_ROLES` | `SUPER_ADMIN`, `ADMIN`, `JUDGE` |
+| `PITCHING_WRITE_ROLES` | `SUPER_ADMIN`, `ADMIN`, `JUDGE` |
+
+Every other role — `ASSESSOR`, `MENTOR`, `ENTREPRENEUR`, `VIEWER` — gets 403 `PERM_001` from every `/pitching*` endpoint, exports included. It is the narrowest read list in the project: what a judge writes is committee material about a store that has not been told the outcome, so only the panel and the people running it see it. Roles that read the 50-question assessment are deliberately *not* on this list.
+
+A JUDGE writes only its own form; an admin may correct anyone's draft (`PitchingService.getWritableOrThrow`). Store scope applies on top of both: every `/pitching*` read and write enters through `StoreService.findAccessible()`, so a JUDGE reaches only the stores a SUPER_ADMIN assigned to it.
+
+One deliberate exception to the read list: `PitchingService.getStoreAverageScore()` takes no user and skips the check. It answers a single averaged number and is called in-process by `AnalyticsService` for the IRS — never wired to a controller.
 
 ---
 
@@ -275,6 +290,19 @@ From `ERROR_CODES` in `src/common/constants/error-codes.const.ts`.
 | `ASSESS_005` | 400 | Not every question scored before submit |
 | `ASSESS_006` | 400 | `rawScore` above that question's `maxScore` |
 | `ASSESS_007` | 404 | Question id invalid |
+
+### Pitching
+| Code | HTTP | Meaning |
+|---|---|---|
+| `PITCH_001` | 404 | Pitching form not found |
+| `PITCH_002` | 409 | This judge already has a form for (storeId, round) |
+| `PITCH_003` | 400 | Unknown comment key or evidence key for that round's form |
+| `PITCH_004` | 409 | Cannot modify a submitted form |
+| `PITCH_005` | 400 | Not every criterion scored before submit |
+| `PITCH_006` | 400 | `score` above that criterion's `maxScore` |
+| `PITCH_007` | 404 | Criterion id invalid, or belongs to the other round |
+| `PITCH_008` | 400 | ACCELERATION submit without `scoreCardTotal` / `participationPct` |
+| `PITCH_009` | 400 | Verdict missing at submit, or not offered on that round's form |
 
 ### Other
 | Code | HTTP | Meaning |

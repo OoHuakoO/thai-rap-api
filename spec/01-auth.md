@@ -27,7 +27,7 @@ Creates a **PENDING** account. **No session is issued** — no tokens in the bod
   "role": "ENTREPRENEUR"
 }
 ```
-`name` 2–100 chars, `password` 8–128 chars. `role` must be in `SELF_REGISTERABLE_ROLES` — `VIEWER`, `ENTREPRENEUR`, `MENTOR`, `ASSESSOR`, `JUDGE`, `ME_TEAM`. `SUPER_ADMIN` and `ADMIN` are rejected: nobody self-nominates for the roles that manage everyone else.
+`name` 2–100 chars, `password` 8–128 chars. `role` must be in `SELF_REGISTERABLE_ROLES` — `VIEWER`, `ENTREPRENEUR`, `MENTOR`, `ASSESSOR`, `JUDGE`. `SUPER_ADMIN` and `ADMIN` are rejected: nobody self-nominates for the roles that manage everyone else.
 
 **Response 201**
 ```json

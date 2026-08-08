@@ -1,27 +1,20 @@
-import { join } from 'node:path';
 import type { Writable } from 'node:stream';
-import PDFDocument from 'pdfkit';
+import {
+  contentWidthOf,
+  createDoc,
+  field,
+  formatDate,
+  formatScore,
+  gridRow,
+  heading,
+  pipeToStream,
+  row,
+  title,
+  toBuffer,
+  type Doc,
+} from '@shared/pdf-doc.util';
 import { REPORT_ROUNDS } from './report.service';
 import type { OverviewReport, RoundMatrixExportSource, RoundReport } from './types/report.type';
-
-// PDFKit's built-in fonts have no Thai glyphs — every label in these reports is
-// Thai, so the bundled Sarabun (OFL, assets/fonts/) is registered instead.
-// process.cwd() rather than __dirname: the compiled build lives in dist/ while
-// the fonts stay next to the source tree.
-const FONT_DIR = join(process.cwd(), 'assets', 'fonts');
-const FONT_REGULAR = 'Sarabun';
-const FONT_BOLD = 'Sarabun-Bold';
-
-const PAGE_MARGIN = 48;
-const TITLE_SIZE = 18;
-const HEADING_SIZE = 13;
-const BODY_SIZE = 11;
-const LINE_GAP = 4;
-// Gutter between two grid columns, so wrapped text never touches the next cell.
-const CELL_GAP = 6;
-
-const BRAND_ORANGE = '#F26B21';
-const TEXT_DARK = '#333333';
 
 const TEXT = {
   roundTitle: (round: string) => `รายงานผลการประเมิน รอบ ${round}`,
@@ -68,107 +61,6 @@ const TEXT = {
   resolvedNo: 'ยังไม่แก้ไข',
   noData: '-',
 };
-
-type Doc = PDFKit.PDFDocument;
-
-function createDoc(layout: 'portrait' | 'landscape' = 'portrait'): Doc {
-  const doc = new PDFDocument({ size: 'A4', layout, margin: PAGE_MARGIN });
-  doc.registerFont(FONT_REGULAR, join(FONT_DIR, 'Sarabun-Regular.ttf'));
-  doc.registerFont(FONT_BOLD, join(FONT_DIR, 'Sarabun-Bold.ttf'));
-  doc.font(FONT_REGULAR).fontSize(BODY_SIZE).fillColor(TEXT_DARK);
-  return doc;
-}
-
-function toBuffer(doc: Doc): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-    doc.end();
-  });
-}
-
-// Resolves once the document has been fully written out, so the caller does not
-// return — and Nest does not consider the request handled — mid-file. The
-// promise is created before any drawing so no early chunk is missed.
-function pipeToStream(doc: Doc, out: Writable): Promise<void> {
-  const finished = new Promise<void>((resolve, reject) => {
-    doc.on('end', resolve);
-    doc.on('error', reject);
-    out.on('error', reject);
-  });
-  doc.pipe(out);
-  return finished;
-}
-
-function title(doc: Doc, text: string): void {
-  doc.font(FONT_BOLD).fontSize(TITLE_SIZE).fillColor(BRAND_ORANGE).text(text);
-  doc.moveDown(0.6);
-  doc.font(FONT_REGULAR).fontSize(BODY_SIZE).fillColor(TEXT_DARK);
-}
-
-function heading(doc: Doc, text: string): void {
-  doc.moveDown(0.6);
-  doc.font(FONT_BOLD).fontSize(HEADING_SIZE).fillColor(BRAND_ORANGE).text(text);
-  doc.moveDown(0.2);
-  doc.font(FONT_REGULAR).fontSize(BODY_SIZE).fillColor(TEXT_DARK);
-}
-
-function field(doc: Doc, label: string, value: string): void {
-  doc.font(FONT_BOLD).text(`${label}: `, { continued: true });
-  doc.font(FONT_REGULAR).text(value, { lineGap: LINE_GAP });
-}
-
-function row(doc: Doc, cells: string[], columnWidth: number, bold = false): void {
-  gridRow(
-    doc,
-    cells,
-    cells.map(() => columnWidth),
-    bold,
-  );
-}
-
-// row() with per-column widths, so a wide table can give the store name more
-// room than the numeric columns. Rows are placed by hand rather than by PDFKit's
-// text flow, which is also why the page break has to be checked here.
-//
-// A cell that does not fit its column wraps onto further lines instead of being
-// truncated — nothing in these reports may be shown half-written — so the row is
-// as tall as its tallest cell, measured before anything is drawn.
-function gridRow(doc: Doc, cells: string[], widths: number[], bold = false): void {
-  const columnWidth = (index: number): number =>
-    (widths[index] ?? widths[widths.length - 1]) - CELL_GAP;
-
-  doc.font(bold ? FONT_BOLD : FONT_REGULAR);
-  const rowHeight = cells.reduce(
-    (tallest, cell, index) =>
-      Math.max(tallest, doc.heightOfString(cell, { width: columnWidth(index), lineGap: LINE_GAP })),
-    BODY_SIZE + LINE_GAP,
-  );
-
-  if (doc.y + rowHeight > doc.page.height - PAGE_MARGIN) {
-    doc.addPage();
-    doc.font(bold ? FONT_BOLD : FONT_REGULAR);
-  }
-
-  const y = doc.y;
-  let x = PAGE_MARGIN;
-  cells.forEach((cell, index) => {
-    doc.text(cell, x, y, { width: columnWidth(index), lineGap: LINE_GAP });
-    x += widths[index] ?? widths[widths.length - 1];
-  });
-  doc.y = y + rowHeight;
-  doc.x = PAGE_MARGIN;
-}
-
-function formatDate(value: Date | null): string {
-  return value ? value.toISOString().slice(0, 10) : TEXT.noData;
-}
-
-function formatScore(value: number | null): string {
-  return value === null ? TEXT.noData : value.toFixed(2);
-}
 
 function storeSection(doc: Doc, store: RoundReport['store']): void {
   heading(doc, TEXT.storeSection);
@@ -225,7 +117,7 @@ function questionSection(doc: Doc, report: RoundReport, contentWidth: number): v
 
 export function buildRoundReportPdf(report: RoundReport): Promise<Buffer> {
   const doc = createDoc();
-  const contentWidth = doc.page.width - PAGE_MARGIN * 2;
+  const contentWidth = contentWidthOf(doc);
   const columnWidth = contentWidth / 3;
 
   title(doc, TEXT.roundTitle(report.round));
@@ -318,7 +210,7 @@ export async function streamRoundMatrixPdf(
 ): Promise<void> {
   const doc = createDoc('landscape');
   const finished = pipeToStream(doc, out);
-  const contentWidth = doc.page.width - PAGE_MARGIN * 2;
+  const contentWidth = contentWidthOf(doc);
 
   title(doc, TEXT.matrixTitle(source.round));
   doc.text(TEXT.storeCount(source.storeCount));
@@ -417,7 +309,7 @@ export async function streamRoundMatrixPdf(
 
 export function buildOverviewReportPdf(report: OverviewReport): Promise<Buffer> {
   const doc = createDoc();
-  const contentWidth = doc.page.width - PAGE_MARGIN * 2;
+  const contentWidth = contentWidthOf(doc);
 
   title(doc, TEXT.overviewTitle);
   storeSection(doc, report.store);

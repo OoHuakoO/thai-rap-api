@@ -259,7 +259,7 @@ Refresh tokens are stored as **bcrypt hashes** in the database — revocable per
 
 ## Roles & Access Control
 
-Roles (`Role` enum in `prisma/schema.prisma`): `ADMIN`, `ASSESSOR`, `MENTOR`, `ENTREPRENEUR`, `JUDGE`, `ME_TEAM`.
+Roles (`Role` enum in `prisma/schema.prisma`): `ADMIN`, `ASSESSOR`, `MENTOR`, `ENTREPRENEUR`, `JUDGE`.
 
 - Every route requires a valid JWT by default (global `JwtAuthGuard`) — mark a route `@Public()` to opt out.
 - Role checks happen in the **service layer**, not the controller, using the JWT payload from `@CurrentUser()` — never a role passed in the request body.

@@ -8,11 +8,11 @@ export interface AnalyticsKpis {
   totalStores: number;
   zone: string | null;
   /**
-   * Full IRS needs a pitching score, which has no data model yet
-   * (project-conventions.md's Ranking formula requires PitchingScore) —
-   * always null until that module exists.
+   * Incubation Readiness Score — project-conventions.md's Ranking formula, run
+   * on T0/T1 plus the store's PITCH_DECK judge average. Null until T1 is
+   * submitted, because every term but the pitching one comes off that round.
    */
-  incubationReadiness: null;
+  incubationReadiness: number | null;
 }
 
 export interface AnalyticsRadarSeries {
@@ -28,7 +28,6 @@ export interface AnalyticsRadarChart {
 export interface AnalyticsTrendSeries {
   name: string;
   data: (number | null)[];
-  actualCount: number;
 }
 
 export interface AnalyticsTrend {
@@ -60,10 +59,4 @@ export interface StoreAnalyticsResult {
   strengths: AnalyticsDimensionHighlight[];
   weaknesses: AnalyticsDimensionHighlight[];
   redFlags: AnalyticsRedFlag[];
-  // No LLM-narrative, mentor-note, or incubation-status data model exists yet
-  // — these three stay fixed at their "nothing to show" value on purpose,
-  // matching the frontend's null/empty handling, not a TODO left half-done.
-  aiAnalysis: null;
-  mentorRecommendations: [];
-  incubationStatus: null;
 }
