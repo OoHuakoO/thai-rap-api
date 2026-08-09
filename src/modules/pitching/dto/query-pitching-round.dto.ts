@@ -1,6 +1,7 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, IntersectionType } from '@nestjs/swagger';
 import { PitchingRound } from '@prisma/client';
 import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { ExportReportDto } from '@common/dto/export-format.dto';
 import { PaginationDto } from '@common/dto/pagination.dto';
 
 export class QueryPitchingCriteriaDto {
@@ -32,3 +33,17 @@ export class QueryPitchingStoreReportDto {
   @IsEnum(PitchingRound, { message: 'round must be one of PITCH_DECK, ACCELERATION' })
   round: PitchingRound;
 }
+
+// The global pipe runs `whitelist` + `forbidNonWhitelisted`, and Nest hands the
+// *whole* query object to every `@Query()` DTO on the route — so two DTOs on one
+// export route reject each other's properties and the download 400s before the
+// handler runs. An export route therefore takes exactly one merged class.
+export class ExportPitchingSummaryDto extends IntersectionType(
+  QueryPitchingSummaryDto,
+  ExportReportDto,
+) {}
+
+export class ExportPitchingStoreReportDto extends IntersectionType(
+  QueryPitchingStoreReportDto,
+  ExportReportDto,
+) {}

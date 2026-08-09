@@ -14,14 +14,12 @@ import { ApiBearerAuth, ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagg
 import type { Response } from 'express';
 import { CurrentUser } from '@common/decorators/current-user.decorator';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
-import {
-  DEFAULT_REPORT_FORMAT,
-  EXPORT_CONTENT_TYPE,
-  ExportReportDto,
-} from '@common/dto/export-format.dto';
+import { DEFAULT_REPORT_FORMAT, EXPORT_CONTENT_TYPE } from '@common/dto/export-format.dto';
 import { sendFile } from '@shared/file-response.util';
 import { CreatePitchingDto } from './dto/create-pitching.dto';
 import {
+  ExportPitchingStoreReportDto,
+  ExportPitchingSummaryDto,
   QueryPitchingCriteriaDto,
   QueryPitchingStoreReportDto,
   QueryPitchingSummaryDto,
@@ -58,12 +56,11 @@ export class PitchingController {
   })
   @ApiProduces(EXPORT_CONTENT_TYPE.xlsx, EXPORT_CONTENT_TYPE.pdf)
   async exportRanking(
-    @Query() query: QueryPitchingSummaryDto,
-    @Query() exportQuery: ExportReportDto,
+    @Query() query: ExportPitchingSummaryDto,
     @CurrentUser() user: JwtPayload,
     @Res() res: Response,
   ) {
-    const format = exportQuery.format ?? DEFAULT_REPORT_FORMAT;
+    const format = query.format ?? DEFAULT_REPORT_FORMAT;
     const file = await this.pitchingService.exportRanking(query, format, user);
     sendFile(res, file, format, `pitching-ranking-${query.round}`);
   }
@@ -83,12 +80,11 @@ export class PitchingController {
   @ApiProduces(EXPORT_CONTENT_TYPE.xlsx, EXPORT_CONTENT_TYPE.pdf)
   async exportStoreReport(
     @Param('storeId') storeId: string,
-    @Query() query: QueryPitchingStoreReportDto,
-    @Query() exportQuery: ExportReportDto,
+    @Query() query: ExportPitchingStoreReportDto,
     @CurrentUser() user: JwtPayload,
     @Res() res: Response,
   ) {
-    const format = exportQuery.format ?? DEFAULT_REPORT_FORMAT;
+    const format = query.format ?? DEFAULT_REPORT_FORMAT;
     const file = await this.pitchingService.exportStoreReport(storeId, query, format, user);
     sendFile(res, file, format, `pitching-report-${query.round}`);
   }

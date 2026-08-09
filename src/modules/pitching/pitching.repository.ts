@@ -35,7 +35,9 @@ const PITCHING_SELECT = {
   createdAt: true,
   updatedAt: true,
   submittedAt: true,
-  store: { select: { id: true, code: true, name: true, province: true } },
+  // coverUrl rides along for the ranking's thumbnails. It is a PUBLIC_STORE_FIELDS
+  // key, so every role that may read a ranking row may see it.
+  store: { select: { id: true, code: true, name: true, province: true, coverUrl: true } },
   judge: { select: { id: true, name: true } },
   scores: {
     select: {

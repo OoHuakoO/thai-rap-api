@@ -64,7 +64,13 @@ function pitchingRow(overrides: Partial<PitchingRow> = {}): PitchingRow {
     createdAt: new Date('2026-05-20T00:00:00.000Z'),
     updatedAt: new Date('2026-05-20T00:00:00.000Z'),
     submittedAt: null,
-    store: { id: 'store-1', code: 'RAP69-001', name: 'หมึกสดริมเล', province: 'จันทบุรี' },
+    store: {
+      id: 'store-1',
+      code: 'RAP69-001',
+      name: 'หมึกสดริมเล',
+      province: 'จันทบุรี',
+      coverUrl: null,
+    },
     judge: { id: judge.sub, name: 'ดร.กฤษฎา' },
     scores: [],
     ...overrides,
@@ -460,7 +466,13 @@ describe('PitchingService', () => {
           storeId: 'store-2',
           totalScore: 91.12,
           status: PitchingStatus.SUBMITTED,
-          store: { id: 'store-2', code: 'RAP69-002', name: 'ครัวบ้านทะเล', province: 'ตราด' },
+          store: {
+            id: 'store-2',
+            code: 'RAP69-002',
+            name: 'ครัวบ้านทะเล',
+            province: 'ตราด',
+            coverUrl: null,
+          },
         }),
       ]);
 
@@ -480,7 +492,13 @@ describe('PitchingService', () => {
           storeId: 'store-2',
           totalScore: 75,
           status: PitchingStatus.SUBMITTED,
-          store: { id: 'store-2', code: 'RAP69-002', name: 'ครัวบ้านทะเล', province: 'ตราด' },
+          store: {
+            id: 'store-2',
+            code: 'RAP69-002',
+            name: 'ครัวบ้านทะเล',
+            province: 'ตราด',
+            coverUrl: null,
+          },
         }),
       ]);
 
@@ -505,7 +523,13 @@ describe('PitchingService', () => {
           storeId: 'store-2',
           totalScore: 80,
           status: PitchingStatus.SUBMITTED,
-          store: { id: 'store-2', code: 'RAP69-002', name: 'ครัวบ้านทะเล', province: 'ตราด' },
+          store: {
+            id: 'store-2',
+            code: 'RAP69-002',
+            name: 'ครัวบ้านทะเล',
+            province: 'ตราด',
+            coverUrl: null,
+          },
         }),
       ]);
 
@@ -591,7 +615,13 @@ describe('PitchingService', () => {
           storeId: 'store-2',
           totalScore: 95,
           status: PitchingStatus.SUBMITTED,
-          store: { id: 'store-2', code: 'RAP69-002', name: 'ครัวบ้านทะเล', province: 'ตราด' },
+          store: {
+            id: 'store-2',
+            code: 'RAP69-002',
+            name: 'ครัวบ้านทะเล',
+            province: 'ตราด',
+            coverUrl: null,
+          },
         }),
       ]);
 

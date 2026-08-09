@@ -63,6 +63,8 @@ export interface PitchingRecommendationCounts {
 }
 
 export interface PitchingSummaryItem extends PitchingStoreRef {
+  /** Storefront photo for the ranking's thumbnail; null when none is uploaded. */
+  coverUrl: string | null;
   rank: number;
   judgeCount: number;
   avgScore: number;

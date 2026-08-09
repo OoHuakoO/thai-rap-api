@@ -166,7 +166,9 @@ once.
 One row per store with **at least one submitted form**, ordered by the judges'
 average (`คะแนนเฉลี่ยกรรมการเรียงลำดับ`). A store nobody has submitted for is
 absent, not zero-ranked. Each row carries `judgeCount`, `avgScore` (2 dp),
-`level`, `recommendationCounts` and `minimumPassedCount`.
+`level`, `recommendationCounts`, `minimumPassedCount` and the store's
+`coverUrl` (the ranking's thumbnail — a `PUBLIC_STORE_FIELDS` key, so no role
+that may read the ranking is narrowed out of it).
 
 Stores on the same average **share a rank**. The acceleration form breaks ties
 by หมวด B, then Market Feasibility, then a committee vote — none of which this

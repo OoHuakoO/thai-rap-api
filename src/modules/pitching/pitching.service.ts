@@ -552,6 +552,7 @@ function rankCohort(cohort: PitchingRow[]): PitchingSummaryItem[] {
         storeCode: rows[0].store.code,
         storeName: rows[0].store.name,
         province: rows[0].store.province,
+        coverUrl: rows[0].store.coverUrl,
         rank: 0,
         judgeCount: rows.length,
         avgScore,

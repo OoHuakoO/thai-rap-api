@@ -249,6 +249,12 @@ async update(id: string, data: Prisma.StoreUpdateInput) { ... }
 
 - Every field needs `class-validator` decorator + `@ApiProperty()`.
 - `whitelist: true` and `forbidNonWhitelisted: true` are global — extra fields are rejected.
+- **One `@Query()` DTO per route.** Nest validates each `@Query()` parameter
+  against the *whole* query object, so with `forbidNonWhitelisted` a second DTO
+  makes the two reject each other's properties and every request 400s before the
+  handler runs. Merge them with `IntersectionType(...)` from `@nestjs/swagger`
+  instead — that is what an export route combining its read filters with
+  `ExportReportDto` must use.
 - Query param DTOs extend `PaginationDto` when they include page/limit.
 - Use `@IsEnum(Round)`, `@IsUUID()`, `@IsInt()`, `@Min(0)`, `@Max(4)` for constrained fields.
 - Optional fields: `@IsOptional()` before other decorators.
