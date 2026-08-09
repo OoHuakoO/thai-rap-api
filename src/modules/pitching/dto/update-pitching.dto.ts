@@ -3,7 +3,6 @@ import { PitchingRecommendation } from '@prisma/client';
 import {
   IsArray,
   IsBoolean,
-  IsDateString,
   IsEnum,
   IsInt,
   IsNumber,
@@ -17,22 +16,14 @@ import {
 import { PITCHING_SCORE_CARD_MAX } from '../pitching.const';
 
 export const PITCHING_COMMENT_MAX_LENGTH = 2000;
-export const PITCHING_PROTOTYPE_MAX_LENGTH = 200;
 
-// Everything outside the criterion grid: the form header, the minimum-condition
-// readings, the evidence checklist, the free-text comments and the verdict.
-// Every field is optional so the form can be saved a section at a time; what a
-// *submit* requires is enforced in the service, not here.
+// Everything outside the criterion grid: the minimum-condition readings, the
+// evidence checklist, the free-text comments and the verdict. The header
+// fields (`judgeId`, `evaluatedAt`, `prototypeProduct`) are deliberately absent
+// — they are stamped server-side and no client edits them. Every field is
+// optional so the form can be saved a section at a time; what a *submit*
+// requires is enforced in the service, not here.
 export class UpdatePitchingDto {
-  @ApiPropertyOptional({
-    description: 'ผลิตภัณฑ์/เมนูต้นแบบ — acceleration form header',
-    maxLength: PITCHING_PROTOTYPE_MAX_LENGTH,
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(PITCHING_PROTOTYPE_MAX_LENGTH)
-  prototypeProduct?: string;
-
   @ApiPropertyOptional({
     description: 'เงื่อนไขขั้นต่ำ 1 — Score Card 8 มิติ',
     minimum: 0,
@@ -87,9 +78,4 @@ export class UpdatePitchingDto {
   @IsOptional()
   @IsBoolean()
   noConflictOfInterest?: boolean;
-
-  @ApiPropertyOptional({ description: 'วันที่ตามที่ระบุบนแบบฟอร์ม' })
-  @IsOptional()
-  @IsDateString()
-  evaluatedAt?: string;
 }

@@ -53,6 +53,7 @@ export const ERROR_CODES = {
     NOT_FOUND: 'PITCH_001',
     DUPLICATE: 'PITCH_002',
     INVALID_STATE: 'PITCH_003',
+    // Retired: a submitted form stays editable. Reserved so the code is never reused.
     SUBMITTED: 'PITCH_004',
     NOT_ALL_SCORED: 'PITCH_005',
     SCORE_OUT_OF_RANGE: 'PITCH_006',

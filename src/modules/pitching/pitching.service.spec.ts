@@ -231,22 +231,21 @@ describe('PitchingService', () => {
 
     it('refuses another judge’s form', async () => {
       await expect(
-        service.update('pitch-1', { prototypeProduct: 'x' }, otherJudge),
+        service.update('pitch-1', { recommendationReason: 'x' }, otherJudge),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
     it('lets an admin correct a judge’s draft', async () => {
-      await service.update('pitch-1', { prototypeProduct: 'น้ำพริกหมึก' }, admin);
+      await service.update('pitch-1', { recommendationReason: 'แก้โดย admin' }, admin);
       expect(repository.update).toHaveBeenCalled();
     });
 
-    it('refuses a submitted form', async () => {
+    it('still edits a submitted form', async () => {
       repository.findById.mockResolvedValue(
         pitchingRow({ status: PitchingStatus.SUBMITTED, totalScore: 83 }),
       );
-      await expect(
-        service.update('pitch-1', { prototypeProduct: 'x' }, judge),
-      ).rejects.toBeInstanceOf(ConflictException);
+      await service.update('pitch-1', { recommendationReason: 'x' }, judge);
+      expect(repository.update).toHaveBeenCalled();
     });
   });
 
@@ -267,6 +266,46 @@ describe('PitchingService', () => {
       );
     });
 
+    it('re-freezes the total when the form was already submitted', async () => {
+      repository.findById.mockResolvedValue(pitchingRow({ status: PitchingStatus.SUBMITTED }));
+      repository.upsertScore.mockResolvedValue(
+        scoredRow(3, { status: PitchingStatus.SUBMITTED, totalScore: 5 }),
+      );
+
+      await service.updateScore('pitch-1', 101, { score: 3 }, judge);
+
+      expect(repository.update).toHaveBeenCalledWith('pitch-1', { totalScore: 3 });
+    });
+
+    it('leaves a draft total unfrozen', async () => {
+      repository.upsertScore.mockResolvedValue(scoredRow(3));
+
+      await service.updateScore('pitch-1', 101, { score: 3 }, judge);
+
+      expect(repository.update).not.toHaveBeenCalled();
+    });
+
+    // Only the acceleration form prints a หลักฐาน/ข้อสังเกต column per criterion.
+    it('rejects a per-criterion note on the pitch deck form', async () => {
+      await expect(
+        service.updateScore('pitch-1', 101, { note: 'มีหลักฐาน' }, judge),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('accepts a per-criterion note on the acceleration form', async () => {
+      repository.findById.mockResolvedValue(pitchingRow({ round: PitchingRound.ACCELERATION }));
+      repository.findCriterionById.mockResolvedValue(
+        criterion({ id: 201, round: PitchingRound.ACCELERATION, code: '1.1', maxScore: 10 }),
+      );
+
+      await service.updateScore('pitch-1', 201, { note: 'มีหลักฐาน' }, judge);
+
+      expect(repository.upsertScore).toHaveBeenCalledWith('pitch-1', 201, {
+        score: undefined,
+        note: 'มีหลักฐาน',
+      });
+    });
+
     it('404s a criterion belonging to the other round', async () => {
       repository.findCriterionById.mockResolvedValue(
         criterion({ id: 201, round: PitchingRound.ACCELERATION }),
@@ -283,21 +322,90 @@ describe('PitchingService', () => {
         scoredRow(4, { recommendation: PitchingRecommendation.SELECTED }),
       );
 
-      await service.submit('pitch-1', judge);
+      await service.submit('pitch-1', {}, judge);
 
-      expect(repository.submit).toHaveBeenCalledWith('pitch-1', 4);
+      expect(repository.submit).toHaveBeenCalledWith('pitch-1', expect.anything(), [], 4, null);
+    });
+
+    // The judge fills the form offline: nothing is stored until this call, so
+    // the payload's own scores and fields have to count towards the total and
+    // towards every precondition.
+    it('writes the whole payload and totals its scores in one call', async () => {
+      repository.findById.mockResolvedValue(pitchingRow());
+
+      await service.submit(
+        'pitch-1',
+        {
+          recommendation: PitchingRecommendation.SELECTED,
+          recommendationReason: 'ศักยภาพดี',
+          scores: [{ criterionId: 101, score: 4 }],
+        },
+        judge,
+      );
+
+      expect(repository.submit).toHaveBeenCalledWith(
+        'pitch-1',
+        expect.objectContaining({
+          recommendation: PitchingRecommendation.SELECTED,
+          recommendationReason: 'ศักยภาพดี',
+        }),
+        [{ criterionId: 101, score: 4 }],
+        4,
+        null,
+      );
+    });
+
+    it('rejects a payload score above the criterion maximum', async () => {
+      repository.findById.mockResolvedValue(pitchingRow());
+
+      await expect(
+        service.submit(
+          'pitch-1',
+          {
+            recommendation: PitchingRecommendation.SELECTED,
+            scores: [{ criterionId: 101, score: 9 }],
+          },
+          judge,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    // Resubmitting a correction must not restamp the hand-in time.
+    it('keeps the first submittedAt on a resubmit', async () => {
+      const submittedAt = new Date('2026-05-21T00:00:00.000Z');
+      repository.findById.mockResolvedValue(
+        scoredRow(4, {
+          status: PitchingStatus.SUBMITTED,
+          submittedAt,
+          recommendation: PitchingRecommendation.SELECTED,
+        }),
+      );
+
+      await service.submit('pitch-1', {}, judge);
+
+      expect(repository.submit).toHaveBeenCalledWith(
+        'pitch-1',
+        expect.anything(),
+        [],
+        4,
+        submittedAt,
+      );
     });
 
     it('refuses while a criterion is still unscored', async () => {
       repository.findById.mockResolvedValue(
         pitchingRow({ recommendation: PitchingRecommendation.SELECTED }),
       );
-      await expect(service.submit('pitch-1', judge)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.submit('pitch-1', {}, judge)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
     it('refuses without a committee verdict', async () => {
       repository.findById.mockResolvedValue(scoredRow(4));
-      await expect(service.submit('pitch-1', judge)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.submit('pitch-1', {}, judge)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
     it('refuses an acceleration form missing its minimum-condition readings', async () => {
@@ -319,7 +427,9 @@ describe('PitchingService', () => {
         }),
       );
 
-      await expect(service.submit('pitch-1', judge)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.submit('pitch-1', {}, judge)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
     // Selection is decided later on the averaged scores, so a judge saving a
@@ -329,7 +439,7 @@ describe('PitchingService', () => {
         scoredRow(4, { recommendation: PitchingRecommendation.SELECTED }),
       );
 
-      await service.submit('pitch-1', judge);
+      await service.submit('pitch-1', {}, judge);
 
       expect(storeService.updateStatus).not.toHaveBeenCalled();
     });

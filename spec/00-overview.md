@@ -297,7 +297,7 @@ From `ERROR_CODES` in `src/common/constants/error-codes.const.ts`.
 | `PITCH_001` | 404 | Pitching form not found |
 | `PITCH_002` | 409 | This judge already has a form for (storeId, round) |
 | `PITCH_003` | 400 | Unknown comment key or evidence key for that round's form |
-| `PITCH_004` | 409 | Cannot modify a submitted form |
+| `PITCH_004` | — | Retired. A submitted form is editable; nothing throws this. The code stays reserved |
 | `PITCH_005` | 400 | Not every criterion scored before submit |
 | `PITCH_006` | 400 | `score` above that criterion's `maxScore` |
 | `PITCH_007` | 404 | Criterion id invalid, or belongs to the other round |

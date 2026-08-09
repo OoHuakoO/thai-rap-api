@@ -27,6 +27,7 @@ import {
   QueryPitchingSummaryDto,
 } from './dto/query-pitching-round.dto';
 import { QueryPitchingDto } from './dto/query-pitching.dto';
+import { SubmitPitchingDto } from './dto/submit-pitching.dto';
 import { UpdatePitchingScoreDto } from './dto/update-pitching-score.dto';
 import { UpdatePitchingDto } from './dto/update-pitching.dto';
 import { PitchingService } from './pitching.service';
@@ -128,8 +129,11 @@ export class PitchingController {
   }
 
   @Post(':id/submit')
-  @ApiOperation({ summary: 'Submit the form — freezes its total. Store.status is not touched.' })
-  submit(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return this.pitchingService.submit(id, user);
+  @ApiOperation({
+    summary:
+      'Submit the whole form in one transaction — freezes its total. Store.status is not touched.',
+  })
+  submit(@Param('id') id: string, @Body() dto: SubmitPitchingDto, @CurrentUser() user: JwtPayload) {
+    return this.pitchingService.submit(id, dto, user);
   }
 }

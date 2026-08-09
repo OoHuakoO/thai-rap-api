@@ -3,6 +3,10 @@ import { PitchingRecommendation, PitchingRound } from '@prisma/client';
 // Both paper forms are marked out of 100.
 export const PITCHING_TOTAL_MAX = 100;
 
+// The longer form has 16 criteria; the bound only exists so a submit payload
+// cannot arrive with an unbounded array to validate.
+export const PITCHING_MAX_CRITERIA = 50;
+
 // เกณฑ์พิจารณาผลการคัดเลือก — identical cut points on both forms (ส่วนที่ 2 of the
 // pitch deck form, the table on page 4 of the acceleration one).
 export const PITCHING_LEVEL_THRESHOLDS = {
@@ -50,6 +54,13 @@ export const PITCHING_EVIDENCE_KEYS: Record<PitchingRound, readonly string[]> = 
     'FINANCIAL_PLAN',
   ],
 } as const;
+
+// Only the acceleration form prints a หลักฐาน/ข้อสังเกต column beside each
+// criterion (หมวด A and หมวด B). The pitch deck form scores the row and nothing
+// else, so a note sent with it is a client bug, not stored data.
+export const PITCHING_ROUNDS_WITH_SCORE_NOTE: readonly PitchingRound[] = [
+  PitchingRound.ACCELERATION,
+];
 
 // ความเห็นสรุปของกรรมการ. MINIMUM_NOT_MET is an acceleration-only verdict —
 // the pitch deck form has no minimum condition to fail.

@@ -28,13 +28,28 @@ GET    /pitching/stores/:storeId           ?round=              one store's repo
 GET    /pitching/stores/:storeId/export    ?round= &format=
 GET    /pitching/:id
 POST   /pitching                           { storeId, round }
-PATCH  /pitching/:id                       header / conditions / comments / verdict
+PATCH  /pitching/:id                       conditions / comments / verdict
 PUT    /pitching/:id/scores/:criterionId
-POST   /pitching/:id/submit
+POST   /pitching/:id/submit                the whole form, in one transaction
 ```
 
-There is no `DELETE`. A judge revises its own draft; a submitted form is frozen
-for everyone, admins included.
+**Submit is the write.** The judge fills the form offline and hands it in once,
+so `POST /:id/submit` takes everything `PATCH` and `PUT` take plus a `scores`
+array, validates it against the round, and writes the fields, every criterion
+and the frozen total inside a single `$transaction` — a half-written form is not
+reachable. The body is optional and every key in it is: an omitted key keeps its
+stored value, which is what makes a correction resubmit of one section safe, and
+a bodiless call still submits whatever is already stored. `PATCH` and `PUT` remain
+for piecemeal writes; the web no longer calls either.
+
+There is no `DELETE`. A judge revises its own form at any time — submitting
+does not freeze it, and every write stays open to the owning judge and to
+admins (`PITCH_004` is retired, kept only so the code is never reused).
+
+**The header fields are server-side.** `judgeId` comes from the token and
+`evaluatedAt` is stamped once at create; neither, nor `prototypeProduct`, is on
+`UpdatePitchingDto`, so sending any of them is rejected 422 `VALID_002` by the
+global `forbidNonWhitelisted`. They are still read back on every response.
 
 ## Access
 
@@ -57,11 +72,15 @@ form), `guideline` (the rubric text) and its own `maxScore` (2–15).
 `Pitching` is one judge's form: `@@unique([storeId, round, judgeId])`.
 `PitchingScore` is one criterion within it: `@@unique([pitchingId, criterionId])`.
 
+`PitchingScore.note` is the หลักฐาน/ข้อสังเกต column, and **only the acceleration
+form prints one** (`PITCHING_ROUNDS_WITH_SCORE_NOTE`). A `note` sent with a
+`PITCH_DECK` score is `PITCH_003` — that form scores the row and nothing else.
+
 ### Fields that only apply to `ACCELERATION`
 
 | Field | Form section |
 |---|---|
-| `prototypeProduct` | ผลิตภัณฑ์/เมนูต้นแบบ (header) |
+| `prototypeProduct` | ผลิตภัณฑ์/เมนูต้นแบบ (header) — **read-only, no write path**: `UpdatePitchingDto` does not carry it, so it stays whatever the database holds (`null` for a form created through the API) |
 | `scoreCardTotal` (0–40) | เงื่อนไขขั้นต่ำ 1 — Score Card 8 มิติ |
 | `participationPct` (0–100) | เงื่อนไขขั้นต่ำ 2 — เข้าร่วมกิจกรรมและส่งงาน |
 | `evidenceChecked` | หลักฐานที่ตรวจสอบ — 9 keys |
@@ -97,7 +116,11 @@ empty — that form has no checklist, so any key sent with it is rejected.
 
 `totalScore` is a plain Σ of the criterion scores — no weighting, because each
 criterion already carries its own `maxScore`. It is frozen at submit; a draft
-reports `totalScore: null` and a live `currentScore`.
+reports `totalScore: null` and a live `currentScore`. A score written to an
+already-submitted form re-freezes `totalScore` in the same call, because the
+ranking averages that stored value and would otherwise rank the store on
+scores no longer on the form. `status`, `submittedAt` and `judgeId` are left
+alone by such a correction, the same rule assessments follow.
 
 `level` comes from `getPitchingLevel()`, the same cut points on both forms:
 
@@ -119,9 +142,22 @@ that both readings are present at all (`PITCH_008`).
 
 ### Submit preconditions
 
+Checked against the **merged** view — the payload's own values first, stored
+values for anything it omits — because nothing in the payload has been written
+yet when they run:
+
 1. Every criterion of that round has a score (`PITCH_005` lists the missing codes).
 2. `recommendation` is set (`PITCH_009`).
 3. `ACCELERATION` only: `scoreCardTotal` and `participationPct` are both present (`PITCH_008`).
+
+Each entry of `scores` is checked the same way `PUT .../scores/:criterionId`
+checks one: unknown criterion or wrong round is `PITCH_007`, a score above the
+criterion's `maxScore` is `PITCH_006`, a `note` on a `PITCH_DECK` form is
+`PITCH_003`.
+
+`submittedAt` is stamped on the **first** submit only — a correction resubmit
+keeps it, since the ranking orders the cohort by it and the form was handed in
+once.
 
 ---
 

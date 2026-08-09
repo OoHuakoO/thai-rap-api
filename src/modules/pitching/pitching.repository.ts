@@ -161,11 +161,40 @@ export class PitchingRepository {
     });
   }
 
-  submit(id: string, totalScore: number): Promise<PitchingRow> {
-    return this.prisma.pitching.update({
-      where: { id },
-      data: { status: PitchingStatus.SUBMITTED, totalScore, submittedAt: new Date() },
-      select: PITCHING_SELECT,
+  // The judge fills the form offline, so submit is the only write: the whole
+  // form and every criterion land together or not at all.
+  submit(
+    id: string,
+    data: Prisma.PitchingUpdateInput,
+    scores: { criterionId: number; score?: number | null; note?: string | null }[],
+    totalScore: number,
+    submittedAt: Date | null,
+  ): Promise<PitchingRow> {
+    return this.prisma.$transaction(async (tx) => {
+      for (const entry of scores) {
+        await tx.pitchingScore.upsert({
+          where: { pitchingId_criterionId: { pitchingId: id, criterionId: entry.criterionId } },
+          create: {
+            pitchingId: id,
+            criterionId: entry.criterionId,
+            score: entry.score ?? null,
+            note: entry.note ?? null,
+          },
+          update: { score: entry.score, note: entry.note },
+        });
+      }
+      return tx.pitching.update({
+        where: { id },
+        data: {
+          ...data,
+          status: PitchingStatus.SUBMITTED,
+          totalScore,
+          // A correction resubmit keeps the first submission's timestamp — the
+          // ranking orders the cohort by it, and the form was handed in once.
+          ...(submittedAt === null ? { submittedAt: new Date() } : {}),
+        },
+        select: PITCHING_SELECT,
+      });
     });
   }
 }

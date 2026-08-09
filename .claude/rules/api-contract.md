@@ -43,6 +43,43 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 
 ## Known Sync Points (as of 2026-07)
 
+- **`POST /pitching/:id/submit` now takes the whole form (2026-08-09), additive.**
+  The body carries everything `PATCH /pitching/:id` takes plus
+  `scores: [{ criterionId, score, note? }]`, and the service writes the fields,
+  every criterion and the frozen total in one `$transaction`. Every key stays
+  optional, so an older bodiless call still submits what is stored. Submit
+  preconditions (`PITCH_005` / `PITCH_008` / `PITCH_009`) now run against the
+  merged payload, and `submittedAt` is stamped on the first submit only. Web
+  mirrors: `PitchingForm` buffers the whole form in local state and calls
+  nothing until ส่งแบบประเมิน — `useUpdatePitching`, `useUpdatePitchingScore` and
+  `pitchingService.update` / `updateScore` are deleted, and the MSW submit
+  handler merges the payload the same way. `PATCH` and `PUT .../scores/:id` are
+  untouched and still mocked; they simply have no web caller now.
+- **A per-criterion `note` is acceleration-only (2026-08-09).**
+  `PUT /pitching/:id/scores/:criterionId` 400s `PITCH_003` when a `note` is sent
+  with a `PITCH_DECK` score — that paper form has no หลักฐาน/ข้อสังเกต column,
+  only the acceleration form does (`PITCHING_ROUNDS_WITH_SCORE_NOTE`). Web
+  mirrors it by rendering the textarea on `criterion.round === 'ACCELERATION'`
+  alone. The `score` half of the call is unchanged for both rounds.
+- **`UpdatePitchingDto` lost its header fields (2026-08-09). Breaking.**
+  `prototypeProduct` and `evaluatedAt` are gone from `PATCH /pitching/:id`, so a
+  client still sending either gets 422 `VALID_002` (`forbidNonWhitelisted`).
+  `evaluatedAt` is stamped at create and `judgeId` comes from the token; all
+  three are still returned on reads. Web mirrors: the whole ข้อมูลการประเมิน
+  header card and the store-status `AlertCard` are deleted from `PitchingForm`,
+  the two fields dropped from its `UpdatePitchingDto`, and `pitchingDb.update`
+  no longer applies them.
+- **A submitted pitching form is no longer frozen (2026-08-09).** `PATCH /pitching/:id`
+  and `PUT /pitching/:id/scores/:criterionId` accept writes at any status, so
+  `PITCH_004` is never thrown (the code stays reserved, never reused). A score
+  written to a `SUBMITTED` form **re-freezes `totalScore` in the same call** —
+  the ranking averages that stored value, so a correction must move it;
+  `status`, `submittedAt` and `judgeId` are untouched, matching the admin
+  correction rule for assessments. Web mirrors: `PitchingForm` dropped `isLocked`
+  and the "ส่งแล้ว ไม่สามารถแก้ไขได้" notice, its four child components lost their
+  `disabled` prop, and `pitchingDb.setScore` re-freezes `totalScore`/`level` on a
+  submitted row. Not breaking for a client that never edited after submit.
+
 - **Pitching narrowed to the judging panel, and JUDGE became assignment-scoped
   (2026-08-08).** `PITCHING_READ_ROLES` is now `SUPER_ADMIN`, `ADMIN`, `JUDGE`
   only — ASSESSOR and MENTOR lost it, so the web's `ROLE_PERMISSIONS`

@@ -19,12 +19,14 @@ import type {
   QueryPitchingStoreReportDto,
   QueryPitchingSummaryDto,
 } from './dto/query-pitching-round.dto';
+import type { SubmitPitchingDto, SubmitPitchingScoreDto } from './dto/submit-pitching.dto';
 import type { UpdatePitchingDto } from './dto/update-pitching.dto';
 import type { UpdatePitchingScoreDto } from './dto/update-pitching-score.dto';
 import {
   PITCHING_ALLOWED_RECOMMENDATIONS,
   PITCHING_COMMENT_KEYS,
   PITCHING_EVIDENCE_KEYS,
+  PITCHING_ROUNDS_WITH_SCORE_NOTE,
 } from './pitching.const';
 import {
   buildPitchingRankingWorkbook,
@@ -132,7 +134,6 @@ export class PitchingService {
     }
 
     const updated = await this.pitchingRepo.update(id, {
-      prototypeProduct: dto.prototypeProduct,
       scoreCardTotal: dto.scoreCardTotal,
       participationPct: dto.participationPct,
       evidenceChecked: dto.evidenceChecked,
@@ -140,7 +141,6 @@ export class PitchingService {
       recommendation: dto.recommendation,
       recommendationReason: dto.recommendationReason,
       noConflictOfInterest: dto.noConflictOfInterest,
-      evaluatedAt: dto.evaluatedAt ? new Date(dto.evaluatedAt) : undefined,
     });
     return this.loadResult(updated);
   }
@@ -166,19 +166,51 @@ export class PitchingService {
         `คะแนนข้อ ${criterion.code} ต้องอยู่ระหว่าง 0 ถึง ${criterion.maxScore}`,
       );
     }
+    if (dto.note !== undefined && !PITCHING_ROUNDS_WITH_SCORE_NOTE.includes(row.round)) {
+      throw new BadRequestException(
+        ERROR_CODES.PITCH.INVALID_STATE,
+        'แบบประเมินรอบนี้ไม่มีช่องหลักฐาน/ข้อสังเกตรายข้อ',
+      );
+    }
 
     const updated = await this.pitchingRepo.upsertScore(id, criterionId, {
       score: dto.score,
       note: dto.note,
     });
-    return this.loadResult(updated);
+    // The ranking averages the frozen totalScore, so a correction made after
+    // submit has to re-freeze it — otherwise the store is ranked on scores that
+    // are no longer on the form.
+    const rescored =
+      updated.status === PitchingStatus.SUBMITTED
+        ? await this.pitchingRepo.update(id, { totalScore: computeTotalScore(updated.scores) })
+        : updated;
+    return this.loadResult(rescored);
   }
 
-  async submit(id: string, user: JwtPayload): Promise<PitchingResult> {
+  // The form is filled offline and handed in once: this call carries the whole
+  // form, validates it against the round, and writes every part of it in one
+  // transaction. Anything the payload omits keeps its stored value, which is
+  // what makes a correction resubmit of one section safe.
+  async submit(id: string, dto: SubmitPitchingDto, user: JwtPayload): Promise<PitchingResult> {
     const row = await this.getWritableOrThrow(id, user);
-
     const criteria = await this.pitchingRepo.findCriteria(row.round);
+
+    if (dto.comments !== undefined) this.assertCommentKeys(row.round, dto.comments);
+    if (dto.evidenceChecked !== undefined) this.assertEvidenceKeys(row.round, dto.evidenceChecked);
+    if (dto.recommendation !== undefined) this.assertRecommendation(row.round, dto.recommendation);
+    const scores = dto.scores ?? [];
+    this.assertSubmittedScores(row.round, criteria, scores);
+
     const scoreByCriterion = new Map(row.scores.map((s) => [s.criterionId, s.score]));
+    for (const entry of scores) {
+      if (entry.score !== undefined) scoreByCriterion.set(entry.criterionId, entry.score);
+    }
+    const recommendation = dto.recommendation ?? row.recommendation;
+    const scoreCardTotal =
+      dto.scoreCardTotal === undefined ? row.scoreCardTotal : dto.scoreCardTotal;
+    const participationPct =
+      dto.participationPct === undefined ? row.participationPct : dto.participationPct;
+
     const unscored = criteria.filter((c) => (scoreByCriterion.get(c.id) ?? null) === null);
     if (unscored.length > 0) {
       throw new BadRequestException(
@@ -186,7 +218,7 @@ export class PitchingService {
         `ยังให้คะแนนไม่ครบ เหลืออีก ${unscored.length} ข้อ (${unscored.map((c) => c.code).join(', ')})`,
       );
     }
-    if (!row.recommendation) {
+    if (!recommendation) {
       throw new BadRequestException(
         ERROR_CODES.PITCH.INVALID_RECOMMENDATION,
         'กรุณาเลือกความเห็นสรุปของกรรมการก่อนส่งแบบประเมิน',
@@ -198,7 +230,7 @@ export class PitchingService {
     // condition counts as failed, which is not a verdict to reach by omission.
     if (
       row.round === PitchingRound.ACCELERATION &&
-      (row.scoreCardTotal === null || row.participationPct === null)
+      (scoreCardTotal === null || participationPct === null)
     ) {
       throw new BadRequestException(
         ERROR_CODES.PITCH.MISSING_MINIMUM_INPUTS,
@@ -209,7 +241,21 @@ export class PitchingService {
     const totalScore = computeTotalScore(
       criteria.map((c) => ({ criterionId: c.id, score: scoreByCriterion.get(c.id) ?? null })),
     );
-    const updated = await this.pitchingRepo.submit(id, totalScore);
+    const updated = await this.pitchingRepo.submit(
+      id,
+      {
+        scoreCardTotal: dto.scoreCardTotal,
+        participationPct: dto.participationPct,
+        evidenceChecked: dto.evidenceChecked,
+        comments: dto.comments,
+        recommendation: dto.recommendation,
+        recommendationReason: dto.recommendationReason,
+        noConflictOfInterest: dto.noConflictOfInterest,
+      },
+      scores,
+      totalScore,
+      row.submittedAt,
+    );
     return this.loadResult(updated);
   }
 
@@ -318,8 +364,8 @@ export class PitchingService {
   }
 
   // Every write funnels through here: the caller must hold the write role, be
-  // allowed to reach the store, own the form (unless admin), and the form must
-  // still be a draft.
+  // allowed to reach the store and own the form (unless admin). Submitting does
+  // not freeze the form — a judge corrects its own scoring after the fact.
   private async getWritableOrThrow(id: string, user: JwtPayload): Promise<PitchingRow> {
     this.assertCanWrite(user);
     const row = await this.getPitchingOrThrow(id);
@@ -329,12 +375,6 @@ export class PitchingService {
       throw new ForbiddenException(
         ERROR_CODES.PERM.FORBIDDEN,
         'แก้ไขได้เฉพาะแบบประเมินที่คุณเป็นผู้ประเมินเท่านั้น',
-      );
-    }
-    if (row.status === PitchingStatus.SUBMITTED) {
-      throw new ConflictException(
-        ERROR_CODES.PITCH.SUBMITTED,
-        'แบบประเมินนี้ส่งแล้ว ไม่สามารถแก้ไขได้',
       );
     }
     return row;
@@ -377,6 +417,38 @@ export class PitchingService {
         ERROR_CODES.PITCH.INVALID_STATE,
         `รายการหลักฐานไม่ถูกต้องสำหรับรอบนี้: ${unknown.join(', ')}`,
       );
+    }
+  }
+
+  // Same three rules `updateScore` enforces one row at a time, applied to the
+  // whole array before any of it is written.
+  private assertSubmittedScores(
+    round: PitchingRound,
+    criteria: PitchingCriterionRow[],
+    scores: SubmitPitchingScoreDto[],
+  ): void {
+    const byId = new Map(criteria.map((criterion) => [criterion.id, criterion]));
+
+    for (const entry of scores) {
+      const criterion = byId.get(entry.criterionId);
+      if (!criterion) {
+        throw new NotFoundException(
+          ERROR_CODES.PITCH.CRITERION_NOT_FOUND,
+          'ไม่พบเกณฑ์การประเมินนี้ในรอบที่กำลังประเมิน',
+        );
+      }
+      if (entry.score !== undefined && entry.score !== null && entry.score > criterion.maxScore) {
+        throw new BadRequestException(
+          ERROR_CODES.PITCH.SCORE_OUT_OF_RANGE,
+          `คะแนนข้อ ${criterion.code} ต้องอยู่ระหว่าง 0 ถึง ${criterion.maxScore}`,
+        );
+      }
+      if (entry.note !== undefined && !PITCHING_ROUNDS_WITH_SCORE_NOTE.includes(round)) {
+        throw new BadRequestException(
+          ERROR_CODES.PITCH.INVALID_STATE,
+          'แบบประเมินรอบนี้ไม่มีช่องหลักฐาน/ข้อสังเกตรายข้อ',
+        );
+      }
     }
   }
 
