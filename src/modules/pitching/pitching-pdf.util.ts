@@ -11,6 +11,7 @@ import {
   toBuffer,
   type Doc,
 } from '@shared/pdf-doc.util';
+import { PitchingRound } from '@prisma/client';
 import {
   PITCHING_COMMENT_LABELS,
   PITCHING_EXPORT_TEXT as TEXT,
@@ -155,15 +156,18 @@ export function buildPitchingRankingPdf(
 
   title(doc, TEXT.rankingTitle(PITCHING_ROUND_LABELS[round]));
 
+  // เงื่อนไขขั้นต่ำ is on the acceleration form only — see the same split in
+  // pitching-excel.util.ts. The freed width goes back to the store name.
+  const hasMinimumConditions = round === PitchingRound.ACCELERATION;
   const widths = [
     contentWidth * 0.06,
     contentWidth * 0.12,
-    contentWidth * 0.26,
+    contentWidth * (hasMinimumConditions ? 0.26 : 0.36),
     contentWidth * 0.12,
     contentWidth * 0.1,
     contentWidth * 0.1,
     contentWidth * 0.14,
-    contentWidth * 0.1,
+    ...(hasMinimumConditions ? [contentWidth * 0.1] : []),
   ];
   gridRow(
     doc,
@@ -175,7 +179,7 @@ export function buildPitchingRankingPdf(
       TEXT.judgeCount,
       TEXT.avgScore,
       TEXT.level,
-      TEXT.minimumPassedCount,
+      ...(hasMinimumConditions ? [TEXT.minimumPassedCount] : []),
     ],
     widths,
     true,
@@ -197,7 +201,7 @@ export function buildPitchingRankingPdf(
         String(item.judgeCount),
         item.avgScore.toFixed(2),
         PITCHING_LEVEL_LABELS[item.level],
-        `${item.minimumPassedCount} / ${item.judgeCount}`,
+        ...(hasMinimumConditions ? [`${item.minimumPassedCount ?? 0} / ${item.judgeCount}`] : []),
       ],
       widths,
     );

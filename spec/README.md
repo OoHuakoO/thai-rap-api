@@ -137,7 +137,6 @@ DELETE /news/:id    [ADMIN]
 
 ### Pitching `/api/v1/pitching`
 ```
-GET    /pitching/criteria
 GET    /pitching
 GET    /pitching/summary
 GET    /pitching/stores/:storeId

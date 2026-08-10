@@ -20,7 +20,6 @@ import { CreatePitchingDto } from './dto/create-pitching.dto';
 import {
   ExportPitchingStoreReportDto,
   ExportPitchingSummaryDto,
-  QueryPitchingCriteriaDto,
   QueryPitchingStoreReportDto,
   QueryPitchingSummaryDto,
 } from './dto/query-pitching-round.dto';
@@ -38,12 +37,6 @@ export class PitchingController {
 
   // Declared before ':id' — Nest matches in declaration order, so a literal
   // segment placed after the param route would never be reached.
-  @Get('criteria')
-  @ApiOperation({ summary: 'List the scoring criteria of one or both pitching forms' })
-  findCriteria(@Query() query: QueryPitchingCriteriaDto, @CurrentUser() user: JwtPayload) {
-    return this.pitchingService.findCriteria(query, user);
-  }
-
   @Get('summary')
   @ApiOperation({ summary: 'Ranking for a round — one row per store, ordered by judge average' })
   getSummary(@Query() query: QueryPitchingSummaryDto, @CurrentUser() user: JwtPayload) {

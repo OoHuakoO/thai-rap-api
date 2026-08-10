@@ -70,8 +70,12 @@ export interface PitchingSummaryItem extends PitchingStoreRef {
   avgScore: number;
   level: PitchingLevel;
   recommendationCounts: PitchingRecommendationCounts;
-  /** How many judges recorded both minimum conditions as met (ACCELERATION). */
-  minimumPassedCount: number;
+  /**
+   * How many judges recorded both minimum conditions as met. `null` on
+   * `PITCH_DECK` — that form has no minimum conditions, so counting them there
+   * reports "0 of 3 passed" for a gate nobody could fail.
+   */
+  minimumPassedCount: number | null;
 }
 
 export interface PitchingCriterionAverage extends PitchingCriterionItem {

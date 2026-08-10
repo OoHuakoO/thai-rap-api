@@ -4,13 +4,6 @@ import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { ExportReportDto } from '@common/dto/export-format.dto';
 import { PaginationDto } from '@common/dto/pagination.dto';
 
-export class QueryPitchingCriteriaDto {
-  @ApiPropertyOptional({ enum: PitchingRound, description: 'Omit to get both forms' })
-  @IsOptional()
-  @IsEnum(PitchingRound, { message: 'round must be one of PITCH_DECK, ACCELERATION' })
-  round?: PitchingRound;
-}
-
 // The ranking is one round's cohort — a mixed-round leaderboard would average
 // two different forms together, so `round` is required here.
 export class QueryPitchingSummaryDto extends PaginationDto {
@@ -21,7 +14,8 @@ export class QueryPitchingSummaryDto extends PaginationDto {
   // Filters the rows, never the ranking: `rank` stays each store's position in
   // the whole round. Renumbering 1..n inside a province would print "อันดับ 1"
   // next to a store that is not the programme's first, and the paper form ranks
-  // one cohort.
+  // one cohort. The caller's own store scope filters the same way, after the
+  // ranking rather than before it — see PitchingService.buildRanking.
   @ApiPropertyOptional({ description: 'Show only stores in this province' })
   @IsOptional()
   @IsString()

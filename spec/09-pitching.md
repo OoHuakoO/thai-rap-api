@@ -20,7 +20,6 @@ scores, and `StoreStatus.PITCHING_COMPLETED` is not set from here.
 ## Endpoints
 
 ```
-GET    /pitching/criteria                  ?round=              master criteria
 GET    /pitching                           ?storeId= &round= &judgeId= &status= &page= &limit=
 GET    /pitching/summary                   ?round= &province= &page= &limit=   ranking across stores
 GET    /pitching/summary/export            ?round= &province= &format=
@@ -170,6 +169,12 @@ absent, not zero-ranked. Each row carries `judgeCount`, `avgScore` (2 dp),
 `coverUrl` (the ranking's thumbnail — a `PUBLIC_STORE_FIELDS` key, so no role
 that may read the ranking is narrowed out of it).
 
+`minimumPassedCount` is **`null` on `PITCH_DECK`**. That form has no
+เงื่อนไขขั้นต่ำ, so both readings are always null on it and a count would report
+0 of every judge for a gate the form cannot record either way. Both export
+writers drop the column entirely on that round rather than print `0 / n`, and
+the acceleration-only ไม่ผ่านขั้นต่ำ verdict column goes with it.
+
 Stores on the same average **share a rank**. The acceleration form breaks ties
 by หมวด B, then Market Feasibility, then a committee vote — none of which this
 endpoint can decide, so it does not invent an order.
@@ -177,6 +182,17 @@ endpoint can decide, so it does not invent an order.
 `province` filters the **rows**, never the ranking: `rank` stays each store's
 position in the whole round. Renumbering 1..n inside a province would print
 "อันดับ 1" next to a store that is not the programme's first.
+
+**The caller's store scope filters the same way — after the ranking, not
+before.** The cohort is read unscoped, ranked, and only then narrowed to the
+stores the caller may read, so a JUDGE assigned three stores sees three rows
+carrying their real programme ranks rather than a private 1–2–3. `rank` and
+`rankedStoreCount` are therefore the whole round's for every role. This is the
+one place a narrowed caller learns something about stores outside its list —
+a position and a cohort size — and nothing else crosses: `buildRanking` filters
+`rankCohort`'s output before returning it, and `GET /pitching/stores/:storeId`
+still resolves the store through `StoreService.findAccessible` and builds
+`judges`, `criteria` and every average from that store's own rows.
 
 `GET /pitching/stores/:storeId` is the same cohort read for one store: its
 `rank` out of `rankedStoreCount`, the per-criterion average across judges

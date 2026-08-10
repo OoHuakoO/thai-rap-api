@@ -43,6 +43,35 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 
 ## Known Sync Points (as of 2026-07)
 
+- **`GET /pitching/criteria` is removed (2026-08-10). Breaking** — the path now
+  404s. It served the round's master criteria standalone, and nothing called it:
+  every read that renders a form already carries them, because
+  `PitchingResult.criteria` and `PitchingStoreReport.criteria` are built from
+  the same master list (`toResult` maps the whole list, not just the rows with a
+  score, so an untouched form still renders every criterion). `PitchingService.findCriteria`
+  and `QueryPitchingCriteriaDto` are gone with it; `PitchingRepository.findCriteria`
+  stays — submit, `loadResult` and `getStoreReport` all read through it. Web
+  mirrors: the MSW handler is deleted. `mocks/fixtures/pitching.fixtures.ts`'s
+  `criteriaForRound` stays, since the other handlers build their payloads from it.
+- **Pitching `rank` is the whole round's for every role (2026-08-10).** The
+  ranking is built over the unscoped cohort and narrowed to the caller's stores
+  *after*, exactly as `province` is. Before this, an assignment-scoped JUDGE got
+  its own list renumbered 1..n, so `GET /pitching/summary` and
+  `GET /pitching/stores/:storeId` reported "อันดับ 1 จาก 3" for a store that was
+  the programme's twelfth — the number the UI hint and the paper form both
+  promise is the programme's. `rankedStoreCount` moves with it. No wire-format
+  change and no new field; a judge now sees positions and a cohort size that
+  include stores outside its list, and nothing else about them. Web needs no
+  change — `PITCHING_TEXT.provinceHint` was already stating this behaviour.
+- **`PitchingSummaryItem.minimumPassedCount` is nullable (2026-08-10). Breaking
+  for a client that read it as a number.** `GET /pitching/summary` (and its
+  export) answers `null` on `PITCH_DECK`: that form has no เงื่อนไขขั้นต่ำ, so
+  the readings are always null and the old count reported "0 of n judges passed"
+  a gate the form cannot record. Both export writers now drop the ผ่านขั้นต่ำ
+  column on that round, together with the acceleration-only ไม่ผ่านขั้นต่ำ
+  verdict count. Web mirrors: `PitchingRankingRow.minimumPassedCount` is
+  `number | null`, `PitchingRankingTable` builds the column only for
+  `ACCELERATION`, and the MSW ranking handler returns null on the other round.
 - **`POST /pitching/:id/submit` now takes the whole form (2026-08-09), additive.**
   The body carries everything `PATCH /pitching/:id` takes plus
   `scores: [{ criterionId, score, note? }]`, and the service writes the fields,
@@ -139,9 +168,10 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
   landed). **Submitting a form never writes `Store.status`**; a web
   change that starts advancing a store off a pitching result is a two-repo
   decision, not a UI tweak. The criteria are seeded master data with pinned ids
-  (`101–110`, `201–216`) — the web must render `GET /pitching/criteria`, never
-  a hardcoded copy of the ten pitch-deck rows, or a reworded criterion silently
-  disagrees with the stored score it labels.
+  (`101–110`, `201–216`) — the web must render the criteria the API sends it,
+  never a hardcoded copy of the ten pitch-deck rows, or a reworded criterion
+  silently disagrees with the stored score it labels. (`GET /pitching/criteria`
+  served them standalone until 2026-08-10; see that entry above.)
 
 - **`analytics.radar` carries one series per submitted round, not the compared
   pair** (2026-07-30). `AnalyticsService.buildRadar` emits T0→T3 order and skips

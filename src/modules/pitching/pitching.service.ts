@@ -15,7 +15,6 @@ import { StoreService } from '@modules/store/store.service';
 import type { CreatePitchingDto } from './dto/create-pitching.dto';
 import type { QueryPitchingDto } from './dto/query-pitching.dto';
 import type {
-  QueryPitchingCriteriaDto,
   QueryPitchingStoreReportDto,
   QueryPitchingSummaryDto,
 } from './dto/query-pitching-round.dto';
@@ -62,12 +61,6 @@ export class PitchingService {
     private readonly pitchingRepo: PitchingRepository,
     private readonly storeService: StoreService,
   ) {}
-
-  async findCriteria(query: QueryPitchingCriteriaDto, user: JwtPayload) {
-    this.assertCanRead(user);
-    const rows = await this.pitchingRepo.findCriteria(query.round);
-    return rows.map(toCriterionItem);
-  }
 
   async findAll(
     query: QueryPitchingDto,
@@ -310,19 +303,38 @@ export class PitchingService {
     return averageScore(rows.map((row) => row.totalScore ?? 0));
   }
 
+  // The cohort is ranked over the **whole round**, then narrowed to the rows the
+  // caller may read — the caller's store scope filters exactly like `province`
+  // does, and for the same reason. Ranking the narrowed set first would renumber
+  // it 1..n, so a JUDGE assigned three stores would read "อันดับ 1 จาก 3" for a
+  // store that is the programme's twelfth. What that leaks is a position and a
+  // cohort size, never another store's row: `rankCohort` output is filtered
+  // before it leaves this method.
   private async buildRanking(
     query: QueryPitchingSummaryDto,
     user: JwtPayload,
   ): Promise<PitchingSummaryItem[]> {
-    const storeIds = await this.storeService.findAccessibleStoreIds(user);
-    const ranked = rankCohort(await this.pitchingRepo.findSubmittedByRound(query.round, storeIds));
-    // Filtered after ranking on purpose — see QueryPitchingSummaryDto.province.
-    return query.province ? ranked.filter((item) => item.province === query.province) : ranked;
+    const [ranked, storeIds] = await Promise.all([
+      this.pitchingRepo.findSubmittedByRound(query.round, null).then((rows) => rankCohort(rows)),
+      this.storeService.findAccessibleStoreIds(user),
+    ]);
+    const accessible = storeIds === null ? null : new Set(storeIds);
+
+    return ranked.filter(
+      (item) =>
+        (accessible === null || accessible.has(item.storeId)) &&
+        (query.province === undefined || item.province === query.province),
+    );
   }
 
   // A store's own report carries its rank, so it reads the whole round's cohort
   // too — the rank is a position among the other stores, not a property of this
-  // one, and cannot be computed from its rows alone.
+  // one, and cannot be computed from its rows alone. The cohort is read
+  // **unscoped** for the same reason `buildRanking` ranks before narrowing: a
+  // rank counted inside the caller's own store list is not the rank the paper
+  // form means. Reaching this store at all is still gated by `findAccessible`
+  // above, and nothing but `rank` / `rankedStoreCount` survives the cohort —
+  // `judges` and every average come from this store's rows alone.
   async getStoreReport(
     storeId: string,
     query: QueryPitchingStoreReportDto,
@@ -331,9 +343,8 @@ export class PitchingService {
     this.assertCanRead(user);
     const store = await this.storeService.findAccessible(storeId, user);
 
-    const storeIds = await this.storeService.findAccessibleStoreIds(user);
     const [allRows, criteria] = await Promise.all([
-      this.pitchingRepo.findSubmittedByRound(query.round, storeIds),
+      this.pitchingRepo.findSubmittedByRound(query.round, null),
       this.pitchingRepo.findCriteria(query.round),
     ]);
     const ranked = rankCohort(allRows);
@@ -558,13 +569,19 @@ function rankCohort(cohort: PitchingRow[]): PitchingSummaryItem[] {
         avgScore,
         level: getPitchingLevel(avgScore),
         recommendationCounts: countRecommendations(rows),
-        minimumPassedCount: rows.filter(
-          (row) =>
-            evaluateMinimumConditions({
-              scoreCardTotal: row.scoreCardTotal,
-              participationPct: row.participationPct,
-            }).passed,
-        ).length,
+        // Only the acceleration form has เงื่อนไขขั้นต่ำ. On a pitch deck row the
+        // two readings are always null, so counting "passed" there would report
+        // 0 of every judge — a failure the form has no way to record.
+        minimumPassedCount:
+          rows[0].round === PitchingRound.ACCELERATION
+            ? rows.filter(
+                (row) =>
+                  evaluateMinimumConditions({
+                    scoreCardTotal: row.scoreCardTotal,
+                    participationPct: row.participationPct,
+                  }).passed,
+              ).length
+            : null,
       };
     })
     .sort((a, b) => b.avgScore - a.avgScore || a.storeCode.localeCompare(b.storeCode));

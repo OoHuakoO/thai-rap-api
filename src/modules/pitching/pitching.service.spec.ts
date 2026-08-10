@@ -541,6 +541,74 @@ describe('PitchingService', () => {
       expect(result.items).toMatchObject([{ storeId: 'store-2', rank: 2 }]);
       expect(result.meta.total).toBe(1);
     });
+
+    // The pitch deck form has no เงื่อนไขขั้นต่ำ, so both readings are always
+    // null on it. Counting them anyway reports "0 of 2 judges passed" for a
+    // gate that form cannot record either way.
+    // A JUDGE reads only its assignment list, but "อันดับ 1 จาก 3" for a store
+    // that is the programme's second would be read as the top of the cohort.
+    it('ranks the whole round before narrowing to the caller’s stores', async () => {
+      storeService.findAccessibleStoreIds.mockResolvedValue(['store-2']);
+      repository.findSubmittedByRound.mockResolvedValue([
+        scoredRow(0, { id: 'p-1', totalScore: 95, status: PitchingStatus.SUBMITTED }),
+        scoredRow(0, {
+          id: 'p-2',
+          storeId: 'store-2',
+          totalScore: 80,
+          status: PitchingStatus.SUBMITTED,
+          store: {
+            id: 'store-2',
+            code: 'RAP69-002',
+            name: 'ครัวบ้านทะเล',
+            province: 'ตราด',
+            coverUrl: null,
+          },
+        }),
+      ]);
+
+      const result = await service.getSummary({ round: PitchingRound.PITCH_DECK }, judge);
+
+      // The unreachable store is not a row, but it is still the store above.
+      expect(repository.findSubmittedByRound).toHaveBeenCalledWith(PitchingRound.PITCH_DECK, null);
+      expect(result.items).toMatchObject([{ storeId: 'store-2', rank: 2 }]);
+      expect(result.meta.total).toBe(1);
+    });
+
+    it('reports no minimum-condition count on PITCH_DECK', async () => {
+      repository.findSubmittedByRound.mockResolvedValue([
+        scoredRow(0, { id: 'p-1', totalScore: 83, status: PitchingStatus.SUBMITTED }),
+      ]);
+
+      const result = await service.getSummary({ round: PitchingRound.PITCH_DECK }, admin);
+
+      expect(result.items[0].minimumPassedCount).toBeNull();
+    });
+
+    it('counts the judges who cleared both minimum conditions on ACCELERATION', async () => {
+      repository.findSubmittedByRound.mockResolvedValue([
+        scoredRow(0, {
+          id: 'p-1',
+          round: PitchingRound.ACCELERATION,
+          totalScore: 83,
+          status: PitchingStatus.SUBMITTED,
+          scoreCardTotal: 34,
+          participationPct: 95,
+        }),
+        scoredRow(0, {
+          id: 'p-2',
+          round: PitchingRound.ACCELERATION,
+          judgeId: otherJudge.sub,
+          totalScore: 80,
+          status: PitchingStatus.SUBMITTED,
+          scoreCardTotal: 22,
+          participationPct: 95,
+        }),
+      ]);
+
+      const result = await service.getSummary({ round: PitchingRound.ACCELERATION }, admin);
+
+      expect(result.items[0]).toMatchObject({ judgeCount: 2, minimumPassedCount: 1 });
+    });
   });
 
   describe('exports', () => {
@@ -645,6 +713,39 @@ describe('PitchingService', () => {
       );
 
       expect(report).toMatchObject({ rank: null, avgScore: null, level: null, judgeCount: 0 });
+    });
+
+    // Reaching the store is gated by findAccessible; the cohort behind the rank
+    // is not, or a judge's report would rank its store inside its own list.
+    it('counts the rank against the whole round for an assignment-scoped caller', async () => {
+      storeService.findAccessibleStoreIds.mockResolvedValue(['store-1']);
+      repository.findSubmittedByRound.mockResolvedValue([
+        scoredRow(4, { id: 'p-1', totalScore: 80, status: PitchingStatus.SUBMITTED }),
+        scoredRow(0, {
+          id: 'p-3',
+          storeId: 'store-2',
+          totalScore: 95,
+          status: PitchingStatus.SUBMITTED,
+          store: {
+            id: 'store-2',
+            code: 'RAP69-002',
+            name: 'ครัวบ้านทะเล',
+            province: 'ตราด',
+            coverUrl: null,
+          },
+        }),
+      ]);
+
+      const report = await service.getStoreReport(
+        'store-1',
+        { round: PitchingRound.PITCH_DECK },
+        judge,
+      );
+
+      expect(repository.findSubmittedByRound).toHaveBeenCalledWith(PitchingRound.PITCH_DECK, null);
+      expect(report).toMatchObject({ rank: 2, rankedStoreCount: 2, judgeCount: 1 });
+      // The unreachable store contributes a rank and nothing else.
+      expect(report.judges.every((item) => item.storeId === 'store-1')).toBe(true);
     });
   });
 });

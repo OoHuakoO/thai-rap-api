@@ -1,4 +1,5 @@
 import { Workbook } from 'exceljs';
+import { PitchingRound } from '@prisma/client';
 import { NO_DATA, SCORE_FORMAT, formatDate, styleHeaderRow } from '@shared/excel-sheet.util';
 import {
   PITCHING_COMMENT_LABELS,
@@ -121,6 +122,10 @@ export async function buildPitchingRankingWorkbook(
 ): Promise<Buffer> {
   const workbook = new Workbook();
   const sheet = workbook.addWorksheet(TEXT.rankingSheet);
+  // เงื่อนไขขั้นต่ำ and the ไม่ผ่านขั้นต่ำ verdict are on the acceleration form
+  // only, so on a pitch deck sheet both columns would be a header over a column
+  // of zeroes for a gate that form does not have. Drop them instead.
+  const hasMinimumConditions = round === PitchingRound.ACCELERATION;
   sheet.columns = [
     { width: 8 },
     { width: 14 },
@@ -129,10 +134,10 @@ export async function buildPitchingRankingWorkbook(
     { width: 12 },
     { width: 14 },
     { width: 18 },
-    { width: 18 },
+    ...(hasMinimumConditions ? [{ width: 18 }] : []),
     { width: 14 },
     { width: 14 },
-    { width: 18 },
+    ...(hasMinimumConditions ? [{ width: 18 }] : []),
     { width: 20 },
   ];
 
@@ -148,10 +153,10 @@ export async function buildPitchingRankingWorkbook(
     TEXT.judgeCount,
     TEXT.avgScore,
     TEXT.level,
-    TEXT.minimumPassedCount,
+    ...(hasMinimumConditions ? [TEXT.minimumPassedCount] : []),
     TEXT.selectedCount,
     TEXT.waitingListCount,
-    TEXT.minimumNotMetCount,
+    ...(hasMinimumConditions ? [TEXT.minimumNotMetCount] : []),
     TEXT.notSelectedCount,
   ]);
   styleHeaderRow(sheet, headerRow);
@@ -170,10 +175,10 @@ export async function buildPitchingRankingWorkbook(
       item.judgeCount,
       item.avgScore,
       PITCHING_LEVEL_LABELS[item.level],
-      `${item.minimumPassedCount} / ${item.judgeCount}`,
+      ...(hasMinimumConditions ? [`${item.minimumPassedCount ?? 0} / ${item.judgeCount}`] : []),
       item.recommendationCounts.SELECTED,
       item.recommendationCounts.WAITING_LIST,
-      item.recommendationCounts.MINIMUM_NOT_MET,
+      ...(hasMinimumConditions ? [item.recommendationCounts.MINIMUM_NOT_MET] : []),
       item.recommendationCounts.NOT_SELECTED,
     ]);
     row.getCell(6).numFmt = SCORE_FORMAT;
