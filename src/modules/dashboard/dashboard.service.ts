@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { NewsType, Round, StoreStatus } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
-import { STORE_TARGET_TOTAL, STORE_UNSPECIFIED_LABEL } from '@constants/index';
+import { ForbiddenException } from '@common/exceptions/app.exception';
+import {
+  ERROR_CODES,
+  STORE_TARGET_TOTAL,
+  STORE_UNSPECIFIED_LABEL,
+  canReadOverview,
+} from '@constants/index';
 import { resolveStoreScope } from '@shared/store-scope.util';
 import { NewsService } from '@modules/news/news.service';
 import { ReportService } from '@modules/report/report.service';
@@ -105,6 +111,7 @@ export class DashboardService {
   ) {}
 
   async getKpis(user: JwtPayload): Promise<DashboardKPIs> {
+    this.assertCanRead(user);
     const scope = resolveStoreScope(user);
 
     const [
@@ -169,6 +176,7 @@ export class DashboardService {
   }
 
   async getProvinceDistribution(user: JwtPayload): Promise<ProvinceDistributionItem[]> {
+    this.assertCanRead(user);
     const rows = await this.dashboardRepo.countStoresByProvince(resolveStoreScope(user));
     const total = rows.reduce((sum, row) => sum + row.count, 0);
 
@@ -180,6 +188,7 @@ export class DashboardService {
   }
 
   async getTop20(query: QueryTop20Dto, user: JwtPayload): Promise<Top20Entry[]> {
+    this.assertCanRead(user);
     const scope = resolveStoreScope(user);
     const round = query.round ?? TOP20_ALL_ROUNDS;
     const rows =
@@ -191,6 +200,7 @@ export class DashboardService {
   }
 
   async getIncubationProgress(user: JwtPayload): Promise<IncubationStep[]> {
+    this.assertCanRead(user);
     const scope = resolveStoreScope(user);
 
     const [totalStores, statusCounts, roundCounts] = await Promise.all([
@@ -222,6 +232,7 @@ export class DashboardService {
     query: QueryProvinceComparisonDto,
     user: JwtPayload,
   ): Promise<ProvinceComparison[]> {
+    this.assertCanRead(user);
     const fromRound = query.from ?? PROVINCE_COMPARISON_DEFAULT_FROM;
     const toRound = query.to ?? PROVINCE_COMPARISON_DEFAULT_TO;
 
@@ -278,6 +289,7 @@ export class DashboardService {
   }
 
   async getStoreRoundScores(user: JwtPayload): Promise<StoreRoundScores[]> {
+    this.assertCanRead(user);
     const rows = await this.dashboardRepo.findStoreRoundScores(resolveStoreScope(user));
 
     return rows.map((row) => {
@@ -307,7 +319,8 @@ export class DashboardService {
   // an ADMIN wrote on /news, so what it shows is editable there. Follow-up
   // warnings the service used to derive from the data (stores missing T1,
   // unresolved red flags) are gone — an admin publishes an ALERT item instead.
-  async getActivities(): Promise<ActivityItem[]> {
+  async getActivities(user: JwtPayload): Promise<ActivityItem[]> {
+    this.assertCanRead(user);
     const news = await this.newsService.listForFeed(ACTIVITY_NEWS_LIMIT);
 
     return news.map((item) => ({
@@ -320,6 +333,7 @@ export class DashboardService {
   }
 
   async getReportsStatus(user: JwtPayload): Promise<ReportStatusItem[]> {
+    this.assertCanRead(user);
     const reports = await this.reportService.listAvailableReports(user);
 
     return reports.map((report) => ({
@@ -330,6 +344,16 @@ export class DashboardService {
       status: report.status,
       downloadUrl: report.downloadPath,
     }));
+  }
+
+  // The overview is programme context, not a store record, so the gate is the
+  // role and the row-level scoping below is what narrows it further. A JUDGE
+  // holds neither: OVERVIEW_READ_ROLES leaves it out, and the web app hides the
+  // ภาพรวมโครงการ nav entry for the same reason.
+  private assertCanRead(user: JwtPayload): void {
+    if (!canReadOverview(user.role)) {
+      throw new ForbiddenException(ERROR_CODES.PERM.FORBIDDEN, 'ไม่มีสิทธิ์เข้าถึงภาพรวมโครงการ');
+    }
   }
 
   private toTop20Entries(rows: StoreScoreRow[]): Top20Entry[] {

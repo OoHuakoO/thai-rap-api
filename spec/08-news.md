@@ -12,9 +12,9 @@ DELETE /news/:id
 
 ## Access
 
-**Reads answer any signed-in role** — neither takes a user to narrow on, and there is no store to scope by. **Writes are ADMIN / SUPER_ADMIN only** (`403 PERM_001` for everyone else).
+**Reads answer every signed-in role but JUDGE** (`OVERVIEW_READ_ROLES`) — a judge gets `403 PERM_001`, the same list that closes `/dashboard/*` to it. For everyone else neither read narrows by caller: there is no store to scope by, so the feed is identical for all of them. **Writes are ADMIN / SUPER_ADMIN only** (`403 PERM_001` for everyone else).
 
-`GET /dashboard/activities` maps `NewsService.listForFeed(10)` in-process, so anything published here appears there immediately (`GENERAL` → `announcement`, `EVENT` → `event`, `ALERT` → `warning`).
+`GET /dashboard/activities` maps `NewsService.listForFeed(10)` in-process — that path carries no role check of its own because the dashboard has already run the same one on its caller — so anything published here appears there immediately (`GENERAL` → `announcement`, `EVENT` → `event`, `ALERT` → `warning`).
 
 ---
 

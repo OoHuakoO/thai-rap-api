@@ -16,17 +16,20 @@ GET /dashboard/reports-status
 
 ## Access
 
-**No role is refused.** Every signed-in role gets an answer; what changes is the store set it is computed over, through the same `resolveStoreScope()` the store directory uses:
+**JUDGE is refused every endpoint here** (`403 PERM_001`, `OVERVIEW_READ_ROLES`) — a judge is a guest on the panel for the stores it is assigned, not a participant in the programme, and the web app hides ภาพรวมโครงการ from it for the same reason.
+
+Every other signed-in role gets an answer; what changes is the store set it is computed over, through the same `resolveStoreScope()` the store directory uses:
 
 | Role | Cards computed over |
 |---|---|
 | ENTREPRENEUR | the stores it owns |
 | ASSESSOR / MENTOR | its assignment list |
+| JUDGE | refused — `403 PERM_001` |
 | everyone else | every store |
 
 So an assessor's Top 20 and KPI counts describe exactly the stores it can open on `/stores` — never a store it would 403 on. A narrowed role with nothing in scope gets zeros and empty arrays, not an error.
 
-Two exceptions: `GET /dashboard/activities` is the news feed and has no store to narrow on, and `targetStores` stays the project-wide `STORE_TARGET_TOTAL` (400) for every role — the goal is the programme's, not a count of what the caller reaches.
+Two exceptions to the scoping: `GET /dashboard/activities` is the news feed and has no store to narrow on, and `targetStores` stays the project-wide `STORE_TARGET_TOTAL` (400) for every role — the goal is the programme's, not a count of what the caller reaches.
 
 Every response here is a **bare array or object** — none of these endpoints is paginated.
 

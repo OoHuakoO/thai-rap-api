@@ -13,6 +13,7 @@ const superAdmin: JwtPayload = {
   role: Role.SUPER_ADMIN,
 };
 const assessor: JwtPayload = { sub: 'assessor-1', email: 'a@example.com', role: Role.ASSESSOR };
+const judge: JwtPayload = { sub: 'judge-1', email: 'j@example.com', role: Role.JUDGE };
 
 function newsRow(overrides: Partial<NewsRow> = {}): NewsRow {
   return {
@@ -57,7 +58,7 @@ describe('NewsService', () => {
     it('should flatten the author name onto each item', async () => {
       repository.findAll.mockResolvedValue([newsRow()]);
 
-      const result = await service.findAll({});
+      const result = await service.findAll({}, assessor);
 
       expect(result[0].authorName).toBe('ผู้ดูแลระบบ');
       expect(repository.findAll).toHaveBeenCalledWith({
@@ -67,7 +68,7 @@ describe('NewsService', () => {
     });
 
     it('should pass the type filter and limit through', async () => {
-      await service.findAll({ type: NewsType.EVENT, limit: 5 });
+      await service.findAll({ type: NewsType.EVENT, limit: 5 }, assessor);
 
       expect(repository.findAll).toHaveBeenCalledWith({ type: NewsType.EVENT, limit: 5 });
     });
@@ -75,20 +76,34 @@ describe('NewsService', () => {
 
   describe('findOne', () => {
     it('should throw when the announcement does not exist', async () => {
-      await expect(service.findOne('missing')).rejects.toThrow(NotFoundException);
+      await expect(service.findOne('missing', assessor)).rejects.toThrow(NotFoundException);
     });
 
     it('should return the announcement to a non-admin role', async () => {
       repository.findById.mockResolvedValue(newsRow());
 
-      const result = await service.findOne('news-1');
+      const result = await service.findOne('news-1', assessor);
 
       expect(result.title).toBe('อัปเดตเกณฑ์การประเมินโครงการ ปี 2569');
     });
   });
 
-  // The dashboard activity feed shows announcements to every role, so this
-  // path stays open — it is not reachable through the /news endpoints.
+  // A judge is not part of the programme audience, so the feed is closed to it
+  // the same way ภาพรวมโครงการ is.
+  describe('judge access', () => {
+    it('should refuse to list announcements to a judge', async () => {
+      await expect(service.findAll({}, judge)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should refuse a single announcement to a judge', async () => {
+      repository.findById.mockResolvedValue(newsRow());
+
+      await expect(service.findOne('news-1', judge)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  // The dashboard activity feed calls this after checking its own caller, so
+  // the path stays open — it is not reachable through the /news endpoints.
   describe('listForFeed', () => {
     it('should return items without any role check', async () => {
       repository.findAll.mockResolvedValue([newsRow()]);

@@ -1,6 +1,7 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { NewsType, Role, Round, StoreStatus } from '@prisma/client';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
+import { ForbiddenException } from '@common/exceptions/app.exception';
 import { STORE_TARGET_TOTAL } from '@constants/index';
 import { NewsService } from '@modules/news/news.service';
 import { ReportService } from '@modules/report/report.service';
@@ -16,6 +17,7 @@ const assessor: JwtPayload = {
   role: Role.ASSESSOR,
 };
 const mentor: JwtPayload = { sub: 'mentor-1', email: 'mentor@example.com', role: Role.MENTOR };
+const judge: JwtPayload = { sub: 'judge-1', email: 'judge@example.com', role: Role.JUDGE };
 
 const ownerScope = { ownerId: owner.sub };
 const assessorScope = { assignedToId: assessor.sub };
@@ -70,6 +72,22 @@ describe('DashboardService', () => {
     repository = module.get(DashboardRepository);
     newsService = module.get(NewsService);
     reportService = module.get(ReportService);
+  });
+
+  // A judge sits on the panel for the stores it is assigned; the programme
+  // overview is not part of that, so every /dashboard read is closed to it.
+  describe('judge access', () => {
+    it('should refuse every overview read to a judge', async () => {
+      await expect(service.getKpis(judge)).rejects.toThrow(ForbiddenException);
+      await expect(service.getProvinceDistribution(judge)).rejects.toThrow(ForbiddenException);
+      await expect(service.getTop20({}, judge)).rejects.toThrow(ForbiddenException);
+      await expect(service.getIncubationProgress(judge)).rejects.toThrow(ForbiddenException);
+      await expect(service.getProvinceComparison({}, judge)).rejects.toThrow(ForbiddenException);
+      await expect(service.getStoreRoundScores(judge)).rejects.toThrow(ForbiddenException);
+      await expect(service.exportStoreRoundScores(judge)).rejects.toThrow(ForbiddenException);
+      await expect(service.getActivities(judge)).rejects.toThrow(ForbiddenException);
+      await expect(service.getReportsStatus(judge)).rejects.toThrow(ForbiddenException);
+    });
   });
 
   describe('getKpis', () => {
@@ -583,11 +601,11 @@ describe('DashboardService', () => {
 
   describe('getActivities', () => {
     it('should return nothing when no news has been published', async () => {
-      await expect(service.getActivities()).resolves.toEqual([]);
+      await expect(service.getActivities(admin)).resolves.toEqual([]);
     });
 
     it('should read the feed from the news module only', async () => {
-      await service.getActivities();
+      await service.getActivities(admin);
 
       expect(newsService.listForFeed).toHaveBeenCalledWith(10);
     });
@@ -616,7 +634,7 @@ describe('DashboardService', () => {
         },
       ]);
 
-      const result = await service.getActivities();
+      const result = await service.getActivities(admin);
 
       expect(result).toHaveLength(2);
       expect(result[0]).toMatchObject({ type: 'event', urgent: false });
@@ -637,7 +655,7 @@ describe('DashboardService', () => {
         },
       ]);
 
-      const result = await service.getActivities();
+      const result = await service.getActivities(admin);
 
       expect(result[0]).toMatchObject({ type: 'announcement', title: 'ประกาศทั่วไป' });
     });

@@ -40,7 +40,7 @@ A new account is created `PENDING` and cannot log in until a SUPER_ADMIN approve
 | Assessor | `ASSESSOR` | Scores the stores assigned to it |
 | Mentor / Coach | `MENTOR` | Reads the stores assigned to it; does not score |
 | Entrepreneur | `ENTREPRENEUR` | Its own stores only |
-| Judge | `JUDGE` | Fills in the pitching forms for the stores assigned to it; no assessment data |
+| Judge | `JUDGE` | Fills in the pitching forms for the stores assigned to it; no assessment data, no overview, no announcements |
 | ผู้ใช้ทั่วไป | `VIEWER` | Public store fields only; no assessment data |
 
 Self-registerable roles (`SELF_REGISTERABLE_ROLES`): every role except `SUPER_ADMIN` and `ADMIN`.
@@ -62,13 +62,19 @@ Three roles are narrowed; every other role reads the whole programme. One resolv
 Consequences:
 - A store outside the caller's scope 403s `PERM_001` on `GET /stores/:id` **and** on every `/assessments*`, `/reports/*`, `/analytics/*` read of it — they all enter through `StoreService.findAccessible()`.
 - An assignment-scoped role with no assignments gets `items: []`, not an error.
-- Dashboard cards are computed over the same narrowed set; `targetStores` stays the project-wide `STORE_TARGET_TOTAL` (400).
+- Dashboard cards are computed over the same narrowed set for the roles that may read them at all; `targetStores` stays the project-wide `STORE_TARGET_TOTAL` (400).
 
 ### Who may read assessment data
 
 `ASSESSMENT_READ_ROLES` (`src/common/constants/role.const.ts`): `SUPER_ADMIN`, `ADMIN`, `ASSESSOR`, `MENTOR`, `ENTREPRENEUR`.
 
 `JUDGE` and `VIEWER` get 403 `PERM_001` from every `/assessments*`, `/assessment/:storeId/history`, `/reports/*` and `/analytics/*` endpoint, exports included. It is an allow-list: a role added to the enum later reads nothing until it is named there.
+
+### Who may read the overview and announcements
+
+`OVERVIEW_READ_ROLES` (`src/common/constants/role.const.ts`): every role but `JUDGE`.
+
+`JUDGE` gets 403 `PERM_001` from every `/dashboard/*` endpoint and from `GET /news` / `GET /news/:id` — a judge is a guest on the panel, not a participant in the programme. Same allow-list rule as above.
 
 ### Who may write assessment data
 

@@ -7,6 +7,7 @@ import {
   formatScore,
   gridRow,
   heading,
+  tableWidths,
   title,
   toBuffer,
   type Doc,
@@ -51,25 +52,20 @@ export function buildPitchingStoreReportPdf(report: PitchingStoreReport): Promis
   field(doc, TEXT.notSelectedCount, String(report.recommendationCounts.NOT_SELECTED));
 
   heading(doc, TEXT.criterionSection);
-  const criterionWidths = [
-    contentWidth * 0.1,
-    contentWidth * 0.5,
-    contentWidth * 0.12,
-    contentWidth * 0.13,
-    contentWidth * 0.15,
+  const criterionHeaders = [
+    TEXT.criterionCode,
+    TEXT.criterionTitle,
+    TEXT.criterionMax,
+    TEXT.criterionAvg,
+    TEXT.criterionPct,
   ];
-  gridRow(
+  const criterionWidths = tableWidths(
     doc,
-    [
-      TEXT.criterionCode,
-      TEXT.criterionTitle,
-      TEXT.criterionMax,
-      TEXT.criterionAvg,
-      TEXT.criterionPct,
-    ],
-    criterionWidths,
-    true,
+    criterionHeaders,
+    [0.05, 0.85, 0.03, 0.03, 0.04],
+    contentWidth,
   );
+  gridRow(doc, criterionHeaders, criterionWidths, true);
   for (const criterion of report.criteria) {
     gridRow(
       doc,
@@ -126,8 +122,9 @@ function judgeBlock(
     );
   }
 
-  const widths = [contentWidth * 0.1, contentWidth * 0.44, contentWidth * 0.1, contentWidth * 0.36];
-  gridRow(doc, [TEXT.criterionCode, TEXT.criterionTitle, TEXT.score, TEXT.note], widths, true);
+  const headers = [TEXT.criterionCode, TEXT.criterionTitle, TEXT.score, TEXT.note];
+  const widths = tableWidths(doc, headers, [0.05, 0.55, 0.05, 0.35], contentWidth);
+  gridRow(doc, headers, widths, true);
   for (const criterion of judge.criteria) {
     gridRow(
       doc,
@@ -159,31 +156,25 @@ export function buildPitchingRankingPdf(
   // เงื่อนไขขั้นต่ำ is on the acceleration form only — see the same split in
   // pitching-excel.util.ts. The freed width goes back to the store name.
   const hasMinimumConditions = round === PitchingRound.ACCELERATION;
-  const widths = [
-    contentWidth * 0.06,
-    contentWidth * 0.12,
-    contentWidth * (hasMinimumConditions ? 0.26 : 0.36),
-    contentWidth * 0.12,
-    contentWidth * 0.1,
-    contentWidth * 0.1,
-    contentWidth * 0.14,
-    ...(hasMinimumConditions ? [contentWidth * 0.1] : []),
+  const headers = [
+    TEXT.rank,
+    TEXT.storeCode,
+    TEXT.storeName,
+    TEXT.province,
+    TEXT.judgeCount,
+    TEXT.avgScore,
+    TEXT.level,
+    ...(hasMinimumConditions ? [TEXT.minimumPassedCount] : []),
   ];
-  gridRow(
+  // The spare width goes to the three columns carrying free text; the rest hold
+  // a number or a fixed label and never run past their header.
+  const widths = tableWidths(
     doc,
-    [
-      TEXT.rank,
-      TEXT.storeCode,
-      TEXT.storeName,
-      TEXT.province,
-      TEXT.judgeCount,
-      TEXT.avgScore,
-      TEXT.level,
-      ...(hasMinimumConditions ? [TEXT.minimumPassedCount] : []),
-    ],
-    widths,
-    true,
+    headers,
+    [0, 0.1, 0.7, 0.2, 0, 0, 0, ...(hasMinimumConditions ? [0] : [])],
+    contentWidth,
   );
+  gridRow(doc, headers, widths, true);
 
   if (rows.length === 0) {
     doc.text(TEXT.noStore);

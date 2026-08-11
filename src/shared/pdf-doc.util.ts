@@ -120,6 +120,26 @@ export function gridRow(doc: Doc, cells: string[], widths: number[], bold = fals
   doc.x = PAGE_MARGIN;
 }
 
+// Column widths from the header labels plus a share of what is left over.
+// A proportion alone cannot know that "จำนวนกรรมการ" is wider than the 10% it
+// was given, and a header that wraps costs the table a second line and reads as
+// a broken column — so every column starts at the width its bold label measures
+// and `weights` only decides who gets the remaining space.
+export function tableWidths(
+  doc: Doc,
+  headers: string[],
+  weights: number[],
+  contentWidth: number,
+): number[] {
+  doc.font(FONT_BOLD).fontSize(BODY_SIZE);
+  const minimums = headers.map((text) => doc.widthOfString(text) + CELL_GAP * 2);
+  doc.font(FONT_REGULAR);
+
+  const leftover = Math.max(0, contentWidth - minimums.reduce((sum, width) => sum + width, 0));
+  const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
+  return minimums.map((minimum, index) => minimum + (leftover * (weights[index] ?? 0)) / weightSum);
+}
+
 export function formatDate(value: Date | null): string {
   return value ? value.toISOString().slice(0, 10) : NO_DATA;
 }

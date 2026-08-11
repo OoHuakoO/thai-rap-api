@@ -35,6 +35,31 @@ export function canReadAssessment(role: string): boolean {
   return ASSESSMENT_READ_ROLES.some((allowed) => allowed === role);
 }
 
+// Who may read the programme overview (/dashboard/*) and the announcements
+// behind ข่าวประชาสัมพันธ์ (/news reads). Everything here is programme-wide
+// context rather than a store's own record, which is why VIEWER — ผู้ใช้ทั่วไป —
+// is in it: the numbers it sees are already aggregates, and the announcements
+// are published to be read.
+//
+// JUDGE is deliberately absent. A judge is a guest on the panel for the stores
+// it is assigned, not a participant in the programme, so neither the overview
+// nor the announcement feed is its business. It reads pitching and its own
+// พิชชิ่ง report and nothing else.
+//
+// An allow-list, not a deny-list — same rule as ASSESSMENT_READ_ROLES.
+export const OVERVIEW_READ_ROLES: Role[] = [
+  Role.SUPER_ADMIN,
+  Role.ADMIN,
+  Role.ASSESSOR,
+  Role.MENTOR,
+  Role.ENTREPRENEUR,
+  Role.VIEWER,
+];
+
+export function canReadOverview(role: string): boolean {
+  return OVERVIEW_READ_ROLES.some((allowed) => allowed === role);
+}
+
 // Who may read pitching forms and the reports built on them. Everything a judge
 // writes — scores, comments, a selection verdict — is committee material about a
 // store that has not been told the outcome yet, so this is the narrowest read

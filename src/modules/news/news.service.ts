@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { JwtPayload } from '@common/decorators/current-user.decorator';
 import { ForbiddenException, NotFoundException } from '@common/exceptions/app.exception';
-import { ERROR_CODES, isAdminRole } from '@constants/index';
+import { ERROR_CODES, canReadOverview, isAdminRole } from '@constants/index';
 import type { CreateNewsDto } from './dto/create-news.dto';
 import { NEWS_DEFAULT_LIMIT, type QueryNewsDto } from './dto/query-news.dto';
 import type { UpdateNewsDto } from './dto/update-news.dto';
@@ -12,14 +12,18 @@ import type { NewsItem } from './types/news.type';
 export class NewsService {
   constructor(private readonly newsRepo: NewsRepository) {}
 
-  // Reads are open to every signed-in role, matching the ข่าวประชาสัมพันธ์ page
-  // in the web app — only publishing is admin-only, so neither read takes a
-  // user to narrow on.
-  async findAll(query: QueryNewsDto): Promise<NewsItem[]> {
+  // Reads are open to every signed-in role that holds the overview — which is
+  // all of them but JUDGE, matching the ข่าวประชาสัมพันธ์ page in the web app.
+  // Publishing is narrower still, admin-only. Neither read narrows rows by
+  // caller: an announcement is the same announcement for everyone who may see
+  // the feed at all.
+  async findAll(query: QueryNewsDto, user: JwtPayload): Promise<NewsItem[]> {
+    this.assertCanRead(user);
     return this.listForFeed(query.limit ?? NEWS_DEFAULT_LIMIT, query.type);
   }
 
-  async findOne(id: string): Promise<NewsItem> {
+  async findOne(id: string, user: JwtPayload): Promise<NewsItem> {
+    this.assertCanRead(user);
     return toNewsItem(await this.getNewsOrThrow(id));
   }
 
@@ -66,6 +70,18 @@ export class NewsService {
     const row = await this.newsRepo.findById(id);
     if (!row) throw new NotFoundException(ERROR_CODES.NEWS.NOT_FOUND, 'ไม่พบข่าวประชาสัมพันธ์');
     return row;
+  }
+
+  // The announcement feed is programme context, so it rides the same role list
+  // as the overview it is published to — `listForFeed` is the internal path the
+  // dashboard calls once it has already run this check on its own caller.
+  private assertCanRead(user: JwtPayload): void {
+    if (!canReadOverview(user.role)) {
+      throw new ForbiddenException(
+        ERROR_CODES.PERM.FORBIDDEN,
+        'ไม่มีสิทธิ์เข้าถึงข่าวประชาสัมพันธ์',
+      );
+    }
   }
 
   private assertCanWrite(user: JwtPayload): void {
