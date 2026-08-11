@@ -21,6 +21,7 @@ NestJS 10 + Prisma 5 + MySQL | Auth: JWT (access token + refresh cookie)
 | [07-dashboard.md](07-dashboard.md) | Dashboard | KPIs, province charts, top 20, funnel, store scores, activities, reports status |
 | [08-news.md](08-news.md) | News | list, detail, create, edit, delete |
 | [09-pitching.md](09-pitching.md) | Pitching (judge scoring forms) | criteria, list, ranking, store report, create, patch, score, submit |
+| [10-activities.md](10-activities.md) | Activities (ประมวลภาพกิจกรรม) | list, detail, create, edit, delete, photo upload / reorder / delete |
 
 ---
 
@@ -134,6 +135,20 @@ POST   /news        [ADMIN]
 PATCH  /news/:id    [ADMIN]
 DELETE /news/:id    [ADMIN]
 ```
+
+### Activities `/api/v1/activities`
+```
+GET    /activities
+GET    /activities/:id
+POST   /activities                          [ADMIN]
+PATCH  /activities/:id                      [ADMIN]
+DELETE /activities/:id                      [ADMIN]
+POST   /activities/:id/photos               [ADMIN]
+PATCH  /activities/:id/photos/:photoId      [ADMIN]
+DELETE /activities/:id/photos/:photoId      [ADMIN]
+```
+Reads answer every signed-in role — the only endpoint group with no role
+narrowing at all. The photo upload takes a repeated `files` part, not `file`.
 
 ### Pitching `/api/v1/pitching`
 ```

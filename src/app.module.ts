@@ -22,6 +22,7 @@ import { StoreModule } from './modules/store/store.module';
 import { AssessmentModule } from './modules/assessment/assessment.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { NewsModule } from './modules/news/news.module';
+import { ActivityModule } from './modules/activity/activity.module';
 import { PitchingModule } from './modules/pitching/pitching.module';
 import { ReportModule } from './modules/report/report.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
@@ -95,6 +96,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
     AssessmentModule,
     DashboardModule,
     NewsModule,
+    ActivityModule,
     PitchingModule,
     ReportModule,
     AnalyticsModule,

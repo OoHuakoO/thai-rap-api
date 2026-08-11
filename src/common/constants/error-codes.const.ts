@@ -67,6 +67,12 @@ export const ERROR_CODES = {
     NOT_FOUND: 'NEWS_001',
   },
 
+  // Activity gallery (ประมวลภาพกิจกรรม)
+  ACT: {
+    NOT_FOUND: 'ACT_001',
+    PHOTO_NOT_FOUND: 'ACT_002',
+  },
+
   // Reports
   RPT: {
     NOT_FOUND: 'RPT_001',

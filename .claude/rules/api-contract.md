@@ -43,6 +43,36 @@ grep -rn "<old-value>" ../thai-rap-web --include="*.ts" --include="*.tsx" --excl
 
 ## Known Sync Points (as of 2026-07)
 
+- **`/activities/*` is new (2026-08-11)** and additive — nothing existing
+  changed wire format. It is ประมวลภาพกิจกรรม, the programme's photo albums;
+  `spec/10-activities.md` is the contract. Three things about it differ from
+  every other module and are easy to get wrong on the web side:
+  - **Reads are open to every signed-in role**, JUDGE and VIEWER included. It is
+    the only endpoint group with no role list and no data scope — so the web
+    grants `activity:read` to all seven roles and `ROUTES.ACTIVITIES` carries no
+    `allowedRoles`. Writes are `isAdminRole` only, mirrored as `activity:write`
+    on `/activities/new` and `/activities/:id/edit`.
+  - **The photo upload takes a repeated `files` part, not `file`** — the one
+    batch upload in the project (max 20 per request, `PHOTO_MIME_REGEX`, 10 MB
+    each). A client posting `file` uploads nothing and gets an empty album back.
+    It answers the whole `Activity`, not just the new photos.
+  - **`photos` is truncated on the list route** to the first 4
+    (`ACTIVITY_LIST_PHOTO_PREVIEW`) and complete on the detail route;
+    `photoCount` is the real total on both. A UI counting `photos.length` on a
+    list row under-reports every album with more than four photos.
+
+  Two new error codes, `ACT_001` / `ACT_002`, both 404 — mirrored in
+  `mocks/handlers/activity.handlers.ts`. There is no draft/published state: an
+  album is visible from the moment it is saved, so nothing here needs a status
+  enum on either side.
+- **`ActivityPhoto.caption` is gone (2026-08-11), before either side shipped.**
+  The column was dropped, so `UpdateActivityPhotoDto` now carries `sortOrder`
+  alone and `PATCH /activities/:id/photos/:photoId` is a reorder route with no
+  web caller — the app deleted `activityService.updatePhoto` and
+  `useUpdateActivityPhoto` rather than keep a method nothing calls. A photo is
+  the image and its position; the album's `description` and `note` carry the
+  words.
+
 - **`GET /pitching/criteria` is removed (2026-08-10). Breaking** — the path now
   404s. It served the round's master criteria standalone, and nothing called it:
   every read that renders a form already carries them, because

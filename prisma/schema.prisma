@@ -127,6 +127,7 @@ model User {
   assignedStores   Store[]           @relation("AssignedAssessor")
   ownedStores      Store[]           @relation("StoreOwner")
   authoredNews     News[]            @relation("NewsAuthor")
+  authoredActivity Activity[]        @relation("ActivityAuthor")
   pitchings        Pitching[]        @relation("PitchingJudge")
 }
 
@@ -146,6 +147,39 @@ model News {
   author User @relation("NewsAuthor", fields: [authorId], references: [id])
 
   @@index([publishedAt])
+}
+
+// ประมวลภาพกิจกรรม — the photo album of a programme activity (workshop, camp,
+// site visit). Written by ADMIN/SUPER_ADMIN; every signed-in role reads it.
+// There is no draft state: an album exists once an admin saves it.
+model Activity {
+  id           String   @id @default(cuid())
+  title        String
+  description  String   @db.Text
+  // หมายเหตุ — internal remarks about the activity, optional by design.
+  note         String?  @db.Text
+  activityDate DateTime
+  location     String?
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdBy User            @relation("ActivityAuthor", fields: [createdById], references: [id])
+  photos    ActivityPhoto[]
+
+  @@index([activityDate])
+}
+
+model ActivityPhoto {
+  id         String   @id @default(cuid())
+  activityId String
+  url        String
+  sortOrder  Int      @default(0)
+  uploadedAt DateTime @default(now())
+
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@index([activityId, sortOrder])
 }
 
 model RefreshToken {

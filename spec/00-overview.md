@@ -314,6 +314,8 @@ From `ERROR_CODES` in `src/common/constants/error-codes.const.ts`.
 | Code | HTTP | Meaning |
 |---|---|---|
 | `NEWS_001` | 404 | Announcement not found |
+| `ACT_001` | 404 | Activity album not found |
+| `ACT_002` | 404 | Activity photo not found, or it belongs to another album |
 | `RPT_001` | 404 | No submitted assessment for this store/round |
 | `RPT_002` | 404 | `NO_ASSESSMENT` — defined, never thrown |
 | `PERM_001` | 403 | Role / ownership / assignment not permitted |
